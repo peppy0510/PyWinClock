@@ -11,7 +11,6 @@ import datetime
 import math
 import wx
 
-from controls import FlatCheckBox
 from utilities import Canvas
 from utilities import get_font
 
@@ -76,28 +75,23 @@ class ClockCanvas(Canvas):
 
 class ClockBox(wx.Panel):
 
-    def __init__(self, parent, theme, settings):
+    use_24h = True
+    use_utc = False
+
+    def __init__(self, parent, theme):
         super().__init__(parent)
         self.canvas = ClockCanvas(self, theme)
         self.digital = wx.StaticText(self, label='')
         self.datetext = wx.StaticText(self, label='')
-        self.use24h = FlatCheckBox(self, theme, '24-hour clock', self.tick)
-        self.use24h.SetValue(settings.get('use_24h', True))
-        self.useutc = FlatCheckBox(self, theme, 'UTC', self.tick)
-        self.useutc.SetValue(settings.get('use_utc', False))
 
         self.digital.SetFont(get_font(30, bold=True))
         self.datetext.SetFont(get_font(11))
-
-        options = wx.BoxSizer(wx.HORIZONTAL)
-        options.Add(self.use24h, 0, wx.ALIGN_CENTER_VERTICAL)
-        options.Add(self.useutc, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 14)
 
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(self.canvas, 1, wx.EXPAND | wx.ALL, 8)
         sizer.Add(self.digital, 0, wx.ALIGN_CENTER)
         sizer.Add(self.datetext, 0, wx.ALIGN_CENTER | wx.TOP, 2)
-        sizer.Add(options, 0, wx.ALIGN_CENTER | wx.ALL, 8)
+        sizer.AddSpacer(20)
         self.SetSizer(sizer)
         self.apply_theme(theme)
 
@@ -106,20 +100,23 @@ class ClockBox(wx.Panel):
         self.canvas.set_theme(theme)
         self.digital.SetForegroundColour(wx.Colour(theme['text']))
         self.datetext.SetForegroundColour(wx.Colour(theme['dim']))
-        self.use24h.set_theme(theme)
-        self.useutc.set_theme(theme)
         self.Refresh()
+
+    def set_options(self, use_24h, use_utc):
+        self.use_24h = use_24h
+        self.use_utc = use_utc
+        self.tick()
 
     def tick(self):
         now = datetime.datetime.now(datetime.timezone.utc)
-        if self.useutc.GetValue():
+        if self.use_utc:
             zone = 'UTC'
         else:
             now = now.astimezone()
             offset = now.strftime('%z')
             zone = 'UTC%s:%s' % (offset[:3], offset[3:])
 
-        if self.use24h.GetValue():
+        if self.use_24h:
             self.digital.SetLabel(now.strftime('%H:%M:%S'))
         else:
             meridiem = 'AM' if now.hour < 12 else 'PM'

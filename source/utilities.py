@@ -15,6 +15,12 @@ import wx
 
 APP_NAME = 'PyWinClock'
 
+# Stopwatch / Countdown 이 같은 크기를 쓰도록 여기서만 정의한다.
+CONTROL_HEIGHT = 28
+BUTTON_SIZE = (88, CONTROL_HEIGHT)
+PRESET_SIZE = (46, CONTROL_HEIGHT)
+CONTROL_GAP = 4
+
 DWMWA_USE_IMMERSIVE_DARK_MODE = 20
 DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 = 19
 
@@ -93,6 +99,15 @@ def save_settings(settings):
         pass
 
 
+def format_hms(seconds):
+    total = int(seconds)
+    return '%02d:%02d:%02d' % (total // 3600, total % 3600 // 60, total % 60)
+
+
+def format_hundredths(seconds):
+    return '%02d' % (int(seconds * 100) % 100)
+
+
 def shade(colour, factor):
     base = wx.Colour(colour)
     return wx.Colour(min(255, int(base.Red() * factor)),
@@ -139,3 +154,33 @@ class Canvas(wx.Panel):
         tw, th = gc.GetTextExtent(text)[:2]
         gc.DrawText(text, cx - tw / 2, y)
         return th
+
+
+class TimerCanvas(Canvas):
+    '''Stopwatch 와 Countdown 이 같은 폰트·배치로 시간을 그리도록 공유하는 베이스.'''
+
+    def __init__(self, parent, theme):
+        super().__init__(parent, theme)
+        self.seconds = 0.0
+
+    def get_time_colour(self):
+        return self.theme['text']
+
+    def get_time_size(self, width, height):
+        return max(14, min(int(width / 8), int(height / 2.9)))
+
+    def draw(self, gc, width, height):
+        self.draw_time(gc, width, height)
+
+    def draw_time(self, gc, width, height):
+        size = self.get_time_size(width, height)
+        top = height / 2 - size * 0.78
+        used = self.draw_centered_text(gc, format_hms(self.seconds), width / 2, top,
+                                       get_font(size, bold=True), self.get_time_colour())
+
+        # 큰 숫자의 디센더 여백만큼 끌어올려 두 줄 사이 간격을 좁힌다.
+        sub_top = top + used - size * 0.24
+        sub_used = self.draw_centered_text(
+            gc, format_hundredths(self.seconds), width / 2, sub_top,
+            get_font(max(9, int(size * 0.38))), shade(self.theme['second'], 0.78))
+        return sub_top + sub_used

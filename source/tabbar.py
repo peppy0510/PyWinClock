@@ -7,6 +7,9 @@ email: peppy0510@hotmail.com
 
 네이티브 wx.Notebook 은 탭 헤더 배경색을 따르지 않는다.
 다크 테마를 온전히 적용하려고 탭 바를 캔버스로 직접 그린다.
+
+창에 마우스가 올라와 있을 때만 탭을 그린다. 자리는 그대로 두고 내용만
+숨겨서, 나타나고 사라질 때 아래 페이지가 밀리지 않게 한다.
 '''
 
 
@@ -26,6 +29,7 @@ class TabBar(Canvas):
         self.on_select = on_select
         self.selected = 0
         self.hovered = -1
+        self.visible = False
         self.SetMinSize(wx.Size(-1, self.HEIGHT))
         self.Bind(wx.EVT_LEFT_DOWN, self.on_click)
         self.Bind(wx.EVT_MOTION, self.on_motion)
@@ -43,7 +47,14 @@ class TabBar(Canvas):
             self.selected = index
             self.Refresh()
 
+    def set_visible(self, visible):
+        if visible != self.visible:
+            self.visible = visible
+            self.Refresh()
+
     def on_click(self, event):
+        if not self.visible:
+            return
         index = self.hit_test(event.GetX())
         if index >= 0 and index != self.selected:
             self.selected = index
@@ -51,7 +62,7 @@ class TabBar(Canvas):
             self.on_select(index)
 
     def on_motion(self, event):
-        index = self.hit_test(event.GetX())
+        index = self.hit_test(event.GetX()) if self.visible else -1
         if index != self.hovered:
             self.hovered = index
             self.Refresh()
@@ -64,6 +75,9 @@ class TabBar(Canvas):
     def draw(self, gc, width, height):
         theme = self.theme
         tab_width = self.get_tab_width()
+
+        if not self.visible:
+            return
 
         gc.SetPen(wx.Pen(wx.Colour(theme['rim']), 1))
         gc.StrokeLine(0, height - 1, width, height - 1)
@@ -86,7 +100,3 @@ class TabBar(Canvas):
             gc.SetFont(font, wx.Colour(colour))
             tw, th = gc.GetTextExtent(label)[:2]
             gc.DrawText(label, left + (tab_width - tw) / 2, (height - th) / 2 - 1)
-
-            if active:
-                gc.SetPen(wx.Pen(wx.Colour(theme['accent']), 3))
-                gc.StrokeLine(left + 12, height - 2, left + tab_width - 12, height - 2)

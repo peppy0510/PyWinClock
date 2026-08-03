@@ -9,26 +9,33 @@ restriction, so this app is deliberately **not** packaged into a distributable b
 
 ![Clock](assets/images/screenshot-001.png)
 ![Stopwatch](assets/images/screenshot-002.png)
-![Date](assets/images/screenshot-003.png)
+![Countdown](assets/images/screenshot-003.png)
 
 ## Features
 
 - **Clock** — analog dial rendered with `wx.GraphicsContext` (smooth sweeping second hand),
-  digital readout, `2026-08-03 (Monday)` date line, 12/24-hour toggle,
-  local/UTC toggle (the dial follows it too)
+  digital readout, `2026-08-03 (Monday) · UTC+09:00` date line
 - **Stopwatch** — start/stop, lap records, hundredths of a second
-- **Date** — D-Day counter with elapsed/remaining days and week breakdown
-- Dark and light themes, including the window title bar (DWM immersive dark mode)
-  and a canvas-drawn tab header
-- Always on top, window size and settings persisted automatically
-- Single instance (`wininstance.has_running_instance`)
+- **Countdown** — progress ring, `HH:MM:SS` entry with 1m/3m/5m/10m/30m presets,
+  start/pause/reset, and a blinking `DONE` with a beep at zero
+- **Settings** — 12/24-hour, local/UTC (the dial follows it too), always on top, dark theme.
+  Sits at the right end of the header and returns to the previous tab when clicked again.
+
+The whole header stays hidden until the pointer is over the window, so the clock face is
+uninterrupted while idle. It keeps its space rather than collapsing, so nothing shifts when
+it appears. Every header item is the same width. The header stays visible on the Settings
+page so there is always a way back.
+
+Dark and light themes cover the window title bar too, via DWM immersive dark mode. Window
+size and settings persist automatically, and only one instance runs at a time
+(`wininstance.has_running_instance`).
 
 Settings are stored in `%APPDATA%\PyWinClock\settings.json`.
 
 Every control is drawn on canvas rather than using native widgets. Native `wx.Button`,
 `wx.CheckBox` and `wx.adv.DatePickerCtrl` ignore background colours on Windows and stay
 light in a dark theme, so they are replaced by `controls.FlatButton`, `controls.FlatCheckBox`
-and a plain `wx.TextCtrl` date field.
+and plain `wx.TextCtrl` fields.
 
 ## Requirements
 
@@ -58,9 +65,10 @@ python source\makeshortcut.py
 | `source/mainapp.py` | `MainFrame`, tab wiring, timer, theme and settings |
 | `source/clockbox.py` | Analog clock canvas and clock tab |
 | `source/stopwatchbox.py` | Stopwatch canvas and stopwatch tab |
-| `source/daycounterbox.py` | Date tab |
-| `source/tabbar.py` | Canvas-drawn tab header |
-| `source/controls.py` | Canvas-drawn button and checkbox |
+| `source/countdownbox.py` | Countdown ring canvas and countdown tab |
+| `source/settingsbox.py` | Settings page, opened from the header |
+| `source/tabbar.py` | Canvas-drawn tab header, hidden until hover |
+| `source/controls.py` | Canvas-drawn button, checkbox and settings item |
 | `source/utilities.py` | `Canvas` base class, themes, fonts, settings, dark title bar |
 | `source/wininstance.py` | Single instance check |
 | `source/shortcut.py` | Shortcut helper |
