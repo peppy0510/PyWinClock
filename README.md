@@ -14,7 +14,8 @@ restriction, so this app is deliberately **not** packaged into a distributable b
 ## Features
 
 - **Clock** — analog dial rendered with `wx.GraphicsContext` (smooth sweeping second hand),
-  digital readout, 12/24-hour toggle
+  digital readout, `2026-08-03 (Monday)` date line, 12/24-hour toggle,
+  local/UTC toggle (the dial follows it too)
 - **Stopwatch** — start/stop, lap records, hundredths of a second
 - **Date** — D-Day counter with elapsed/remaining days and week breakdown
 - Dark and light themes, including the window title bar (DWM immersive dark mode)

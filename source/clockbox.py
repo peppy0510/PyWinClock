@@ -17,11 +17,11 @@ from utilities import get_font
 
 
 WEEKDAYS = ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday')
-MONTHS = ('January', 'February', 'March', 'April', 'May', 'June',
-          'July', 'August', 'September', 'October', 'November', 'December')
 
 
 class ClockCanvas(Canvas):
+
+    now = None
 
     def draw(self, gc, width, height):
         theme = self.theme
@@ -53,7 +53,7 @@ class ClockCanvas(Canvas):
                         cx + radius * 0.70 * math.sin(angle) - tw / 2,
                         cy - radius * 0.70 * math.cos(angle) - th / 2)
 
-        now = datetime.datetime.now()
+        now = self.now or datetime.datetime.now()
         seconds = now.second + now.microsecond / 1000000
         minutes = now.minute + seconds / 60
         hours = now.hour % 12 + minutes / 60
@@ -83,15 +83,21 @@ class ClockBox(wx.Panel):
         self.datetext = wx.StaticText(self, label='')
         self.use24h = FlatCheckBox(self, theme, '24-hour clock', self.tick)
         self.use24h.SetValue(settings.get('use_24h', True))
+        self.useutc = FlatCheckBox(self, theme, 'UTC', self.tick)
+        self.useutc.SetValue(settings.get('use_utc', False))
 
         self.digital.SetFont(get_font(30, bold=True))
         self.datetext.SetFont(get_font(11))
+
+        options = wx.BoxSizer(wx.HORIZONTAL)
+        options.Add(self.use24h, 0, wx.ALIGN_CENTER_VERTICAL)
+        options.Add(self.useutc, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 14)
 
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(self.canvas, 1, wx.EXPAND | wx.ALL, 8)
         sizer.Add(self.digital, 0, wx.ALIGN_CENTER)
         sizer.Add(self.datetext, 0, wx.ALIGN_CENTER | wx.TOP, 2)
-        sizer.Add(self.use24h, 0, wx.ALIGN_CENTER | wx.ALL, 8)
+        sizer.Add(options, 0, wx.ALIGN_CENTER | wx.ALL, 8)
         self.SetSizer(sizer)
         self.apply_theme(theme)
 
@@ -101,17 +107,26 @@ class ClockBox(wx.Panel):
         self.digital.SetForegroundColour(wx.Colour(theme['text']))
         self.datetext.SetForegroundColour(wx.Colour(theme['dim']))
         self.use24h.set_theme(theme)
+        self.useutc.set_theme(theme)
         self.Refresh()
 
     def tick(self):
-        now = datetime.datetime.now()
+        now = datetime.datetime.now(datetime.timezone.utc)
+        if self.useutc.GetValue():
+            zone = 'UTC'
+        else:
+            now = now.astimezone()
+            offset = now.strftime('%z')
+            zone = 'UTC%s:%s' % (offset[:3], offset[3:])
+
         if self.use24h.GetValue():
             self.digital.SetLabel(now.strftime('%H:%M:%S'))
         else:
             meridiem = 'AM' if now.hour < 12 else 'PM'
             self.digital.SetLabel('%d:%s %s' % (
                 (now.hour % 12) or 12, now.strftime('%M:%S'), meridiem))
-        self.datetext.SetLabel('%s, %s %d, %d' % (
-            WEEKDAYS[now.weekday()], MONTHS[now.month - 1], now.day, now.year))
+        self.datetext.SetLabel('%s (%s) · %s' % (
+            now.strftime('%Y-%m-%d'), WEEKDAYS[now.weekday()], zone))
+        self.canvas.now = now
         self.Layout()
         self.canvas.Refresh()

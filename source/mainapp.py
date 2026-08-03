@@ -121,6 +121,7 @@ class MainFrame(wx.Frame):
             'theme': self.theme_name,
             'on_top': self.ontop_check.GetValue(),
             'use_24h': self.clockbox.use24h.GetValue(),
+            'use_utc': self.clockbox.useutc.GetValue(),
             'size': [width, height],
         })
         event.Skip()
