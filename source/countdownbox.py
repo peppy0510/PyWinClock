@@ -19,9 +19,13 @@ from utilities import TimerCanvas
 from utilities import get_font
 
 
-PRESETS = (('1m', 60), ('3m', 180), ('5m', 300), ('10m', 600), ('30m', 1800))
+PRESETS = (60, 180, 300, 600, 1800)
 BLINK_INTERVAL = 0.5
 WARN_SECONDS = 10
+
+
+def format_duration(seconds):
+    return '%02d:%02d:%02d' % (seconds // 3600, seconds % 3600 // 60, seconds % 60)
 
 
 def parse_duration(text):
@@ -108,11 +112,10 @@ class CountdownBox(wx.Panel):
         inner.AddStretchSpacer()
         self.fieldpanel.SetSizer(inner)
 
-        self.presets = [FlatButton(self, theme, label, self.make_preset(seconds),
-                                   size=PRESET_SIZE, kind='ghost')
-                        for label, seconds in PRESETS]
-        self.start_button = FlatButton(self, theme, 'Start', self.on_start,
-                                       size=BUTTON_SIZE, kind='primary')
+        self.presets = [FlatButton(self, theme, format_duration(seconds),
+                                   self.make_preset(seconds), size=PRESET_SIZE)
+                        for seconds in PRESETS]
+        self.start_button = FlatButton(self, theme, 'Start', self.on_start, size=BUTTON_SIZE)
         self.reset_button = FlatButton(self, theme, 'Reset', self.on_reset, size=BUTTON_SIZE)
         self.buttons = self.presets + [self.start_button, self.reset_button]
 
@@ -149,8 +152,7 @@ class CountdownBox(wx.Panel):
 
     def make_preset(self, seconds):
         def apply():
-            self.field.SetValue('%02d:%02d:%02d' % (
-                seconds // 3600, seconds % 3600 // 60, seconds % 60))
+            self.field.SetValue(format_duration(seconds))
             self.stop()
         return apply
 
@@ -158,7 +160,7 @@ class CountdownBox(wx.Panel):
         self.running = False
         self.finished_at = 0.0
         self.start_button.SetLabel('Start')
-        self.start_button.set_kind('primary')
+        self.start_button.set_active(False)
 
     def on_field(self):
         if self.running:
@@ -183,7 +185,7 @@ class CountdownBox(wx.Panel):
         self.running = True
         self.finished_at = 0.0
         self.start_button.SetLabel('Stop')
-        self.start_button.set_kind('danger')
+        self.start_button.set_active(True)
 
     def on_reset(self):
         self.stop()
@@ -196,7 +198,7 @@ class CountdownBox(wx.Panel):
                 self.running = False
                 self.finished_at = time.perf_counter()
                 self.start_button.SetLabel('Start')
-                self.start_button.set_kind('primary')
+                self.start_button.set_active(False)
                 wx.Bell()
 
         self.canvas.total = self.total

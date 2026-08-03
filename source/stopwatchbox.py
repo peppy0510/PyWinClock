@@ -28,8 +28,7 @@ class StopwatchBox(wx.Panel):
         self.started_at = 0.0
 
         self.canvas = TimerCanvas(self, theme)
-        self.start_button = FlatButton(self, theme, 'Start', self.on_start,
-                                       size=BUTTON_SIZE, kind='primary')
+        self.start_button = FlatButton(self, theme, 'Start', self.on_start, size=BUTTON_SIZE)
         self.lap_button = FlatButton(self, theme, 'Lap', self.on_lap, size=BUTTON_SIZE)
         self.reset_button = FlatButton(self, theme, 'Reset', self.on_reset, size=BUTTON_SIZE)
         self.buttons = (self.start_button, self.lap_button, self.reset_button)
@@ -42,7 +41,9 @@ class StopwatchBox(wx.Panel):
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(self.canvas, 1, wx.EXPAND | wx.ALL, 8)
         sizer.Add(row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, CONTROL_GAP)
-        sizer.Add(self.laps, 1, wx.EXPAND | wx.ALL, 8)
+        # 버튼끼리는 각자 CONTROL_GAP 을 가져 8px 이 뜬다. 아래도 같게 맞춘다.
+        sizer.AddSpacer(CONTROL_GAP)
+        sizer.Add(self.laps, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
         self.SetSizer(sizer)
         self.apply_theme(theme)
 
@@ -66,12 +67,12 @@ class StopwatchBox(wx.Panel):
             self.elapsed = self.get_elapsed()
             self.running = False
             self.start_button.SetLabel('Start')
-            self.start_button.set_kind('primary')
+            self.start_button.set_active(False)
         else:
             self.started_at = time.perf_counter()
             self.running = True
             self.start_button.SetLabel('Stop')
-            self.start_button.set_kind('danger')
+            self.start_button.set_active(True)
 
     def on_lap(self):
         elapsed = self.get_elapsed()
@@ -85,7 +86,7 @@ class StopwatchBox(wx.Panel):
         self.running = False
         self.elapsed = 0.0
         self.start_button.SetLabel('Start')
-        self.start_button.set_kind('primary')
+        self.start_button.set_active(False)
         self.laps.Clear()
         self.tick()
 

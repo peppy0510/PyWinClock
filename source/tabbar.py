@@ -79,9 +79,6 @@ class TabBar(Canvas):
         if not self.visible:
             return
 
-        gc.SetPen(wx.Pen(wx.Colour(theme['rim']), 1))
-        gc.StrokeLine(0, height - 1, width, height - 1)
-
         for index, label in enumerate(self.labels):
             left = tab_width * index
             active = index == self.selected

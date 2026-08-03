@@ -19,23 +19,14 @@ from utilities import shade
 
 
 class FlatButton(Canvas):
-    '''kind 로 위계를 준다. primary/danger 는 채운 버튼, ghost 는 테두리만.'''
+    '''상단 탭과 같은 시각 언어. 테두리·채움 없이 글자만 두고
+    호버/눌림/활성일 때만 배경을 깐다.'''
 
-    RADIUS = 6
-
-    # kind: (채움 색 키, 글자 색 키). 채움 키가 없으면 평소에는 비워 둔다.
-    PALETTE = {
-        'default': ('control', 'text'),
-        'primary': ('accent', None),
-        'danger': ('second', None),
-        'ghost': (None, 'dim'),
-    }
-
-    def __init__(self, parent, theme, label, on_click, size=BUTTON_SIZE, kind='default'):
+    def __init__(self, parent, theme, label, on_click, size=BUTTON_SIZE):
         super().__init__(parent, theme)
         self.label = label
         self.on_click = on_click
-        self.kind = kind
+        self.active = False
         self.hovered = False
         self.pressed = False
         self.SetMinSize(wx.Size(size[0], size[1]))
@@ -48,9 +39,9 @@ class FlatButton(Canvas):
         self.label = label
         self.Refresh()
 
-    def set_kind(self, kind):
-        if kind != self.kind:
-            self.kind = kind
+    def set_active(self, active):
+        if active != self.active:
+            self.active = active
             self.Refresh()
 
     def on_down(self, event):
@@ -75,41 +66,31 @@ class FlatButton(Canvas):
 
     def draw(self, gc, width, height):
         theme = self.theme
-        fill_key, text_key = self.PALETTE[self.kind]
-        base = theme[fill_key] if fill_key else theme['control']
-        filled = fill_key is not None
-
         if self.pressed:
-            fill, filled = shade(base, 0.84), True
+            fill = shade(theme['face'], 0.88)
+        elif self.active:
+            fill = theme['face']
         elif self.hovered:
-            fill, filled = shade(base, 1.22), True
+            fill = theme['control']
         else:
-            fill = base
+            fill = None
 
-        if filled:
-            gc.SetPen(wx.TRANSPARENT_PEN)
+        if fill:
+            gc.SetPen(wx.Pen(wx.Colour(fill), 1))
             gc.SetBrush(wx.Brush(wx.Colour(fill)))
-            gc.DrawRoundedRectangle(0, 0, width, height, self.RADIUS)
-        else:
-            gc.SetPen(wx.Pen(wx.Colour(theme['rim']), 1))
-            gc.SetBrush(wx.TRANSPARENT_BRUSH)
-            gc.DrawRoundedRectangle(0.5, 0.5, width - 1, height - 1, self.RADIUS)
+            gc.DrawRectangle(0, 0, width, height)
 
-        if text_key is None:
-            colour = '#ffffff'
-        elif self.hovered or self.pressed:
-            colour = theme['text']
-        else:
-            colour = theme[text_key]
-
-        gc.SetFont(get_font(9, bold=self.kind in ('primary', 'danger')), wx.Colour(colour))
+        lit = self.active or self.hovered or self.pressed
+        gc.SetFont(get_font(10, bold=self.active),
+                   wx.Colour(theme['text'] if lit else theme['dim']))
         tw, th = gc.GetTextExtent(self.label)[:2]
-        gc.DrawText(self.label, (width - tw) / 2, (height - th) / 2)
+        gc.DrawText(self.label, (width - tw) / 2, (height - th) / 2 - 1)
 
 
 class FlatCheckBox(Canvas):
 
     BOX = 15
+    LABEL_GAP = 10
 
     def __init__(self, parent, theme, label, on_toggle=None):
         super().__init__(parent, theme)
@@ -126,7 +107,7 @@ class FlatCheckBox(Canvas):
         dc = wx.ClientDC(self)
         dc.SetFont(get_font(9))
         tw, th = dc.GetTextExtent(self.label)
-        self.SetMinSize(wx.Size(self.BOX + 8 + tw, max(self.BOX, th) + 6))
+        self.SetMinSize(wx.Size(self.BOX + self.LABEL_GAP + tw, max(self.BOX, th) + 6))
 
     def GetValue(self):
         return self.value
@@ -173,7 +154,7 @@ class FlatCheckBox(Canvas):
         colour = theme['text'] if self.hovered else theme['dim']
         gc.SetFont(get_font(9), wx.Colour(colour))
         tw, th = gc.GetTextExtent(self.label)[:2]
-        gc.DrawText(self.label, self.BOX + 8, (height - th) / 2)
+        gc.DrawText(self.label, self.BOX + self.LABEL_GAP, (height - th) / 2)
 
 
 class SettingsButton(Canvas):
@@ -227,9 +208,6 @@ class SettingsButton(Canvas):
         theme = self.theme
         if not self.visible:
             return
-
-        gc.SetPen(wx.Pen(wx.Colour(theme['rim']), 1))
-        gc.StrokeLine(0, height - 1, width, height - 1)
 
         if self.active:
             fill = theme['face']

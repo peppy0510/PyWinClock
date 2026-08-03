@@ -25,14 +25,20 @@ from utilities import save_settings
 
 TICK_INTERVAL = 50
 TABS = ('Clock', 'Stopwatch', 'Countdown')
+DEFAULT_SIZE = (380, 580)
+
+# 기억된 위치가 이만큼도 화면에 안 걸리면 사라진 모니터로 본다.
+MIN_VISIBLE_WIDTH = 120
+MIN_VISIBLE_HEIGHT = 32
 
 
 class MainFrame(wx.Frame):
 
+    stored_rect = None
+
     def __init__(self):
         settings = load_settings()
-        width, height = settings.get('size', [380, 580])
-        super().__init__(None, title=APP_NAME, size=wx.Size(width, height))
+        super().__init__(None, title=APP_NAME, size=wx.Size(*DEFAULT_SIZE))
 
         self.theme_name = settings.get('theme', 'dark')
         theme = THEMES[self.theme_name]
@@ -70,7 +76,39 @@ class MainFrame(wx.Frame):
         self.Bind(wx.EVT_CLOSE, self.on_close)
         self.timer.Start(TICK_INTERVAL)
         self.on_tick(None)
-        self.Centre()
+        self.restore_rect(settings)
+
+    def is_rect_visible(self, rect):
+        # 모니터 구성이 바뀌면 기억된 좌표가 아무 화면에도 안 걸릴 수 있다.
+        for index in range(wx.Display.GetCount()):
+            shared = wx.Display(index).GetClientArea().Intersect(rect)
+            if shared.width >= MIN_VISIBLE_WIDTH and shared.height >= MIN_VISIBLE_HEIGHT:
+                return True
+        return False
+
+    def centre_on_primary(self):
+        primary = wx.Display(wx.Display.GetFromPoint(wx.Point(0, 0))).GetClientArea()
+        width, height = self.GetSize()
+        self.SetPosition(wx.Point(primary.x + (primary.width - width) // 2,
+                                  primary.y + (primary.height - height) // 2))
+
+    def restore_rect(self, settings):
+        stored = settings.get('rect')
+        if stored and len(stored) == 4:
+            rect = wx.Rect(*stored)
+            if self.is_rect_visible(rect):
+                self.SetRect(rect)
+                self.stored_rect = list(stored)
+                return
+            self.SetSize(rect.GetSize())
+        else:
+            # rect 이전 버전은 크기만 저장했다. 그 값이라도 살려 쓴다.
+            size = settings.get('size')
+            if size and len(size) == 2:
+                self.SetSize(wx.Size(size[0], size[1]))
+
+        self.centre_on_primary()
+        self.stored_rect = list(self.GetRect())
 
     def set_icon(self):
         path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -146,14 +184,16 @@ class MainFrame(wx.Frame):
 
     def on_close(self, event):
         self.timer.Stop()
-        width, height = self.GetSize()
+        # 최소화/최대화 상태의 좌표를 저장하면 다음 실행이 이상해진다.
+        if self.IsIconized() is False and self.IsMaximized() is False:
+            self.stored_rect = list(self.GetRect())
         save_settings({
             'theme': self.theme_name,
             'on_top': self.settingsbox.ontop.GetValue(),
             'use_24h': self.settingsbox.use24h.GetValue(),
             'use_utc': self.settingsbox.useutc.GetValue(),
             'auto_hide_menu': self.settingsbox.autohide.GetValue(),
-            'size': [width, height],
+            'rect': self.stored_rect,
         })
         event.Skip()
 

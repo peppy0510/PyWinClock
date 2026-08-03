@@ -18,7 +18,7 @@ APP_NAME = 'PyWinClock'
 # Stopwatch / Countdown 이 같은 크기를 쓰도록 여기서만 정의한다.
 CONTROL_HEIGHT = 28
 BUTTON_SIZE = (88, CONTROL_HEIGHT)
-PRESET_SIZE = (46, CONTROL_HEIGHT)
+PRESET_SIZE = (58, CONTROL_HEIGHT)
 CONTROL_GAP = 4
 
 DWMWA_USE_IMMERSIVE_DARK_MODE = 20
@@ -167,7 +167,7 @@ class TimerCanvas(Canvas):
         return self.theme['text']
 
     def get_time_size(self, width, height):
-        return max(14, min(int(width / 8), int(height / 2.9)))
+        return max(14, min(int(width / 9), int(height / 3.2)))
 
     def draw(self, gc, width, height):
         self.draw_time(gc, width, height)
@@ -182,5 +182,5 @@ class TimerCanvas(Canvas):
         sub_top = top + used - size * 0.24
         sub_used = self.draw_centered_text(
             gc, format_hundredths(self.seconds), width / 2, sub_top,
-            get_font(max(9, int(size * 0.38))), shade(self.theme['second'], 0.78))
+            get_font(max(9, int(size * 0.38))), self.theme['dim'])
         return sub_top + sub_used
