@@ -11,21 +11,31 @@ import os
 import wx
 
 from clockbox import ClockBox
-from controls import SettingsButton
 from countdownbox import CountdownBox
 from settingsbox import SettingsBox
+from sidemenu import SideMenu
 from stopwatchbox import StopwatchBox
-from tabbar import TabBar
+from titlebar import TitleBar
+from worldbox import WorldBox
 from utilities import APP_NAME
 from utilities import THEMES
+from utilities import apply_clip_siblings
 from utilities import apply_titlebar_theme
+from utilities import get_asset_path
+from utilities import get_frame_margins
 from utilities import load_settings
 from utilities import save_settings
 
 
 TICK_INTERVAL = 50
-TABS = ('Clock', 'Stopwatch', 'Countdown')
-DEFAULT_SIZE = (380, 580)
+DEFAULT_SIZE = (440, 640)
+
+# 사이드 메뉴의 차례가 곧 페이지의 차례다. 마지막 항목은 아래쪽에 붙는다.
+MENU_ITEMS = (('Clock', 'clock'), ('World', 'globe'), ('Stopwatch', 'stopwatch'),
+              ('Countdown', 'countdown'), ('Settings', 'settings'))
+
+# 캡션을 떼고 그 자리를 직접 그린다. 크기 조절과 스냅은 그대로 남는다.
+FRAME_STYLE = wx.DEFAULT_FRAME_STYLE & ~wx.CAPTION
 
 # 기억된 위치가 이만큼도 화면에 안 걸리면 사라진 모니터로 본다.
 MIN_VISIBLE_WIDTH = 120
@@ -35,35 +45,36 @@ MIN_VISIBLE_HEIGHT = 32
 class MainFrame(wx.Frame):
 
     stored_rect = None
+    # 흉내 낸 최대화 이전의 자리. None 이면 최대화 상태가 아니다.
+    restore_bounds = None
 
     def __init__(self):
         settings = load_settings()
-        super().__init__(None, title=APP_NAME, size=wx.Size(*DEFAULT_SIZE))
+        super().__init__(None, title=APP_NAME, size=wx.Size(*DEFAULT_SIZE),
+                         style=FRAME_STYLE)
 
         self.theme_name = settings.get('theme', 'dark')
         theme = THEMES[self.theme_name]
 
         self.set_icon()
 
-        self.tab_index = 0
         self.book = wx.Simplebook(self)
         self.clockbox = ClockBox(self.book, theme)
+        self.worldbox = WorldBox(self.book, theme, settings, self.store_settings)
         self.stopwatchbox = StopwatchBox(self.book, theme)
         self.countdownbox = CountdownBox(self.book, theme)
         self.settingsbox = SettingsBox(self.book, theme, settings, self.on_settings)
-        for page in (self.clockbox, self.stopwatchbox,
+        for page in (self.clockbox, self.worldbox, self.stopwatchbox,
                      self.countdownbox, self.settingsbox):
             self.book.AddPage(page, '')
 
-        self.tabbar = TabBar(self, theme, TABS, self.on_tab)
-        self.settings_button = SettingsButton(self, theme, self.on_settings_button)
-
-        header = wx.BoxSizer(wx.HORIZONTAL)
-        header.Add(self.tabbar, 1, wx.EXPAND)
-        header.Add(self.settings_button, 0, wx.EXPAND)
+        self.titlebar = TitleBar(self, theme, self.on_menu, self.toggle_maximize)
+        self.sidemenu = SideMenu(self, theme, MENU_ITEMS, self.on_select)
+        # 서랍은 페이지 위에 떠 있다. 페이지 쪽이 형제를 클립해 주어야 살아남는다.
+        apply_clip_siblings(self.book)
 
         sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(header, 0, wx.EXPAND)
+        sizer.Add(self.titlebar, 0, wx.EXPAND)
         sizer.Add(self.book, 1, wx.EXPAND)
         self.SetSizer(sizer)
 
@@ -73,6 +84,8 @@ class MainFrame(wx.Frame):
         self.timer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self.on_tick)
         self.Bind(wx.EVT_SIZE, self.on_size)
+        self.Bind(wx.EVT_MAXIMIZE, self.on_maximize)
+        self.Bind(wx.EVT_CHAR_HOOK, self.on_char)
         self.Bind(wx.EVT_CLOSE, self.on_close)
         self.timer.Start(TICK_INTERVAL)
         self.on_tick(None)
@@ -111,8 +124,7 @@ class MainFrame(wx.Frame):
         self.stored_rect = list(self.GetRect())
 
     def set_icon(self):
-        path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                            'assets', 'icon', 'icon.ico')
+        path = get_asset_path('icon', 'icon.ico')
         if os.path.exists(path):
             self.SetIcon(wx.Icon(path, wx.BITMAP_TYPE_ICO))
 
@@ -120,37 +132,59 @@ class MainFrame(wx.Frame):
         theme = THEMES[self.theme_name]
         self.SetBackgroundColour(wx.Colour(theme['bg']))
         self.book.SetBackgroundColour(wx.Colour(theme['bg']))
-        self.tabbar.set_theme(theme)
-        self.settings_button.set_theme(theme)
+        self.titlebar.set_theme(theme)
+        self.sidemenu.set_theme(theme)
 
         self.clockbox.apply_theme(theme)
+        self.worldbox.apply_theme(theme)
         self.stopwatchbox.apply_theme(theme)
         self.countdownbox.apply_theme(theme)
         self.settingsbox.apply_theme(theme)
 
-        apply_titlebar_theme(self, theme['titlebar_dark'])
+        apply_titlebar_theme(self, theme)
         self.Refresh()
 
-    def on_tab(self, index):
-        self.tab_index = index
+    def on_menu(self):
+        self.sidemenu.toggle()
+
+    def on_select(self, index):
         self.book.SetSelection(index)
-        self.settings_button.set_active(False)
         self.on_tick(None)
 
-    def on_settings_button(self):
-        if self.book.GetCurrentPage() is self.settingsbox:
-            self.tabbar.set_selection(self.tab_index)
-            self.book.SetSelection(self.tab_index)
-            self.settings_button.set_active(False)
+    def toggle_maximize(self):
+        '''캡션이 없는 창을 Windows 가 최대화하면 보이지 않는 여백만큼 화면
+        밖으로 넘치고 작업 표시줄까지 덮는다. 작업 영역에 맞춰 직접 채운다.'''
+        if self.restore_bounds is not None:
+            bounds, self.restore_bounds = self.restore_bounds, None
+            self.SetRect(wx.Rect(*bounds))
         else:
-            self.tabbar.set_selection(-1)
-            self.book.SetSelection(len(TABS))
-            self.settings_button.set_active(True)
-        self.on_tick(None)
+            self.restore_bounds = list(self.GetRect())
+            index = max(0, wx.Display.GetFromWindow(self))
+            work = wx.Display(index).GetClientArea()
+            left, top, right, bottom = get_frame_margins(self)
+            self.SetRect(wx.Rect(work.x - left, work.y - top,
+                                 work.width + left + right,
+                                 work.height + top + bottom))
+        self.titlebar.set_maximized(self.restore_bounds is not None)
+
+    def on_maximize(self, event):
+        # 화면 위로 던지거나 Win+Up 을 눌러도 같은 자리에 오도록 되돌려 잡는다.
+        if not self.IsMaximized():
+            return
+        self.Maximize(False)
+        if self.restore_bounds is None:
+            self.toggle_maximize()
+
+    def on_char(self, event):
+        if event.GetKeyCode() == wx.WXK_ESCAPE and self.sidemenu.is_open():
+            self.sidemenu.close()
+            return
+        event.Skip()
 
     def on_settings(self):
         self.clockbox.set_options(self.settingsbox.use24h.GetValue(),
                                   self.settingsbox.useutc.GetValue())
+        self.worldbox.set_options(self.settingsbox.use24h.GetValue())
 
         style = self.GetWindowStyle()
         if self.settingsbox.ontop.GetValue():
@@ -164,9 +198,8 @@ class MainFrame(wx.Frame):
             self.apply_theme()
 
     def on_size(self, event):
-        width = self.GetClientSize()[0]
-        if width > 0 and self.settings_button.set_width(width // (len(TABS) + 1)):
-            self.Layout()
+        height = self.GetClientSize()[1]
+        self.sidemenu.place(TitleBar.HEIGHT, max(0, height - TitleBar.HEIGHT))
         event.Skip()
 
     def on_tick(self, event):
@@ -174,27 +207,37 @@ class MainFrame(wx.Frame):
         if page is not None:
             page.tick()
 
-        # Auto hide menu 가 켜져 있으면 창에 마우스가 올라와 있을 때만 헤더를
-        # 보여준다. 설정 페이지에 머무는 동안은 돌아갈 길을 남겨두려고 계속 보인다.
+        # Auto hide menu 가 켜져 있으면 창에 마우스가 올라와 있을 때만 타이틀바를
+        # 보여준다. 설정 페이지와 서랍이 열린 동안은 돌아갈 길을 남겨두려고 계속 보인다.
         visible = (not self.settingsbox.autohide.GetValue() or
                    page is self.settingsbox or
+                   self.sidemenu.is_open() or
                    self.GetScreenRect().Contains(wx.GetMousePosition()))
-        self.tabbar.set_visible(visible)
-        self.settings_button.set_visible(visible)
+        self.titlebar.set_visible(visible)
+        self.titlebar.set_menu_open(self.sidemenu.is_open())
 
-    def on_close(self, event):
-        self.timer.Stop()
-        # 최소화/최대화 상태의 좌표를 저장하면 다음 실행이 이상해진다.
-        if self.IsIconized() is False and self.IsMaximized() is False:
-            self.stored_rect = list(self.GetRect())
+    def store_settings(self):
         save_settings({
             'theme': self.theme_name,
             'on_top': self.settingsbox.ontop.GetValue(),
             'use_24h': self.settingsbox.use24h.GetValue(),
             'use_utc': self.settingsbox.useutc.GetValue(),
             'auto_hide_menu': self.settingsbox.autohide.GetValue(),
+            'cities': list(self.worldbox.names),
+            'home_city': self.worldbox.home,
             'rect': self.stored_rect,
         })
+
+    def on_close(self, event):
+        self.timer.Stop()
+        # 마우스를 잡은 채로 창이 사라지면 나중에 죽는다. 먼저 놓게 한다.
+        self.sidemenu.close()
+        # 최소화/최대화 상태의 좌표를 저장하면 다음 실행이 이상해진다.
+        if self.restore_bounds is not None:
+            self.stored_rect = list(self.restore_bounds)
+        elif self.IsIconized() is False and self.IsMaximized() is False:
+            self.stored_rect = list(self.GetRect())
+        self.store_settings()
         event.Skip()
 
 
@@ -202,5 +245,5 @@ def launch_mainapp():
     app = wx.App(False)
     frame = MainFrame()
     frame.Show()
-    apply_titlebar_theme(frame, THEMES[frame.theme_name]['titlebar_dark'])
+    apply_titlebar_theme(frame, THEMES[frame.theme_name])
     app.MainLoop()

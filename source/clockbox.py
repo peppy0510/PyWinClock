@@ -17,17 +17,24 @@ from utilities import get_font
 
 WEEKDAYS = ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday')
 
+# 맨 아래 날짜 줄이 창 밑동에 붙지 않게 두는 자리.
+BOTTOM_GAP = 40
+# 문자판이 헤더에 바로 붙지 않게 위에 두는 자리.
+TOP_GAP = 16
+
 
 class ClockCanvas(Canvas):
 
     now = None
+
+    NUMERAL_RATIO = 0.135
 
     def get_numeral_size(self, radius=None):
         # 문자판 숫자 크기. 아래 디지털 시계가 같은 크기를 쓰려고 꺼내 쓴다.
         if radius is None:
             width, height = self.GetClientSize()
             radius = min(width, height) / 2 - 12
-        return max(8, int(radius * 0.15))
+        return max(8, int(radius * self.NUMERAL_RATIO))
 
     def draw(self, gc, width, height):
         theme = self.theme
@@ -102,18 +109,19 @@ class ClockBox(wx.Panel):
         self.utc_datetext = wx.StaticText(self, label='')
 
         for text in (self.datetext, self.utc_datetext):
-            text.SetFont(get_font(11))
+            text.SetFont(get_font(10))
         self.utc_digital.Hide()
         self.utc_datetext.Hide()
 
         sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.AddSpacer(TOP_GAP)
         sizer.Add(self.canvas, 0, wx.EXPAND | wx.ALL, 8)
         sizer.AddStretchSpacer()
         sizer.Add(self.digital, 0, wx.ALIGN_CENTER)
         sizer.Add(self.datetext, 0, wx.ALIGN_CENTER | wx.TOP, 2)
         sizer.Add(self.utc_digital, 0, wx.ALIGN_CENTER | wx.TOP, 12)
         sizer.Add(self.utc_datetext, 0, wx.ALIGN_CENTER | wx.TOP, 2)
-        sizer.AddSpacer(20)
+        sizer.AddSpacer(BOTTOM_GAP)
         self.SetSizer(sizer)
         self.Bind(wx.EVT_SIZE, self.on_size)
         self.apply_theme(theme)
