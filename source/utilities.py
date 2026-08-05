@@ -21,6 +21,7 @@ APP_NAME = 'PyWinClock'
 CONTROL_HEIGHT = 28
 ROUND_SIZE = 46
 CARD_HEIGHT = 54
+CARD_RADIUS = 6
 CONTROL_GAP = 4
 
 # 직접 그리는 타이틀바의 높이. 캡션 버튼은 Windows 와 같은 46x32 로 둔다.
@@ -207,6 +208,18 @@ def shade(colour, factor):
                      min(255, int(base.Blue() * factor)))
 
 
+def draw_card_rim(gc, colour, x, y, width, height, radius=CARD_RADIUS):
+    '''카드 테두리. `gc` 의 펜으로 두르면 왼쪽과 위만 두 픽셀에 반씩 걸쳐
+    오른쪽·아래보다 굵어 보인다. 바깥 모서리와 1px 안쪽 모서리 사이만 채워
+    네 변을 같은 굵기로 세운다 — 겹치는 안쪽은 짝수라 비고 테두리만 남는다.'''
+    path = gc.CreatePath()
+    path.AddRoundedRectangle(x, y, width, height, radius)
+    path.AddRoundedRectangle(x + 1, y + 1, width - 2, height - 2, max(0, radius - 1))
+    gc.SetPen(wx.TRANSPARENT_PEN)
+    gc.SetBrush(wx.Brush(wx.Colour(colour)))
+    gc.FillPath(path, wx.ODDEVEN_RULE)
+
+
 def get_font(size, bold=False):
     weight = wx.FONTWEIGHT_BOLD if bold else wx.FONTWEIGHT_NORMAL
     return wx.Font(size, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL,
@@ -278,7 +291,7 @@ class TimerCanvas(Canvas):
 
     SUB_RATIO = 0.52
     # 큰 숫자의 크기를 정하는 가로 폭 나눗수. 키우면 글자가 작아진다.
-    WIDTH_DIVISOR = 11.5
+    WIDTH_DIVISOR = 13
 
     def __init__(self, parent, theme):
         super().__init__(parent, theme)

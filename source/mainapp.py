@@ -30,9 +30,9 @@ from utilities import save_settings
 TICK_INTERVAL = 50
 DEFAULT_SIZE = (440, 640)
 
-# 사이드 메뉴의 차례가 곧 페이지의 차례다. 마지막 항목은 아래쪽에 붙는다.
+# 사이드 메뉴의 차례가 곧 페이지의 차례다. None 은 구분선이라 페이지가 없다.
 MENU_ITEMS = (('Clock', 'clock'), ('World', 'globe'), ('Stopwatch', 'stopwatch'),
-              ('Countdown', 'countdown'), ('Settings', 'settings'))
+              ('Countdown', 'countdown'), None, ('Settings', 'settings'))
 
 # 캡션을 떼고 그 자리를 직접 그린다. 크기 조절과 스냅은 그대로 남는다.
 FRAME_STYLE = wx.DEFAULT_FRAME_STYLE & ~wx.CAPTION
@@ -198,8 +198,7 @@ class MainFrame(wx.Frame):
             self.apply_theme()
 
     def on_size(self, event):
-        height = self.GetClientSize()[1]
-        self.sidemenu.place(TitleBar.HEIGHT, max(0, height - TitleBar.HEIGHT))
+        self.sidemenu.place(TitleBar.HEIGHT)
         event.Skip()
 
     def on_tick(self, event):

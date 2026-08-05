@@ -14,8 +14,10 @@ import math
 import wx
 
 from utilities import CARD_HEIGHT
+from utilities import CARD_RADIUS
 from utilities import ROUND_SIZE
 from utilities import Canvas
+from utilities import draw_card_rim
 from utilities import get_font
 from utilities import shade
 
@@ -267,9 +269,10 @@ class SettingCard(Pressable):
         elif self.hovered:
             fill = shade(fill, 1.12)
 
-        gc.SetPen(wx.Pen(wx.Colour(theme['rim']), 1))
+        gc.SetPen(wx.TRANSPARENT_PEN)
         gc.SetBrush(wx.Brush(wx.Colour(fill)))
-        gc.DrawRoundedRectangle(0.5, 0.5, width - 1, height - 1, 6)
+        gc.DrawRoundedRectangle(0, 0, width, height, CARD_RADIUS)
+        draw_card_rim(gc, theme['rim'], 0, 0, width, height)
 
         switch_left = width - self.PADDING - self.TRACK_WIDTH
         gc.SetFont(get_font(9), wx.Colour(theme['dim']))
@@ -315,7 +318,12 @@ class SettingCard(Pressable):
 
     def get_track(self, gc, left, top, inset):
         '''반원 둘을 직선으로 이은 알약. 둥근 사각형은 반지름이 높이의 절반일 때
-        호와 직선이 만나는 자리가 각져 보인다.'''
+        호와 직선이 만나는 자리가 각져 보인다.
+
+        밑동 좌우가 위보다 살짝 각져 보이는 것은 이 경로 탓이 아니다. 원 둘 +
+        네모로 다시 그려 봐도 화소가 한 점 다르지 않았다 — GDI+ 가 맨 윗줄과
+        맨 아랫줄의 안티에일리어싱을 다르게 얹는다(실측: 꽉 찬 구간이 위 18px,
+        아래 22px, 윤곽선 자체는 대칭). 모양을 바꿔서는 못 없앤다.'''
         left, top = left + inset, top + inset
         width, height = self.TRACK_WIDTH - inset * 2, self.TRACK_HEIGHT - inset * 2
         radius = height / 2

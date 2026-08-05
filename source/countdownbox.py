@@ -29,12 +29,16 @@ BUTTON_GAP = 10
 RING_RATIO = 0.38
 # 고리 획 두께가 반지름 밖으로 반씩 나가므로 캔버스 높이에 그만큼 더 준다.
 RING_PAD = 10
-# 맨 아래 버튼 줄이 창 밑동에 붙지 않게 두는 자리.
-FOOTER_GAP = 16
 # 고리 캔버스가 제 둘레에 두는 여백.
 CANVAS_MARGIN = 8
 # 시간과 그 아래 입력칸 사이.
-FIELD_GAP = 12
+FIELD_GAP = 8
+# 고리와 버튼 줄 사이. 고리는 아래로 둥글게 물러나므로 같은 값을 줘도 곧은
+# 글자 밑동보다 더 붙어 보인다. 그만큼 한 뼘 더 둔다.
+BUTTON_TOP_GAP = 14
+# 창이 낮아 자리를 다 써야 할 때도 위아래로 남겨 두는 여백. 이게 없으면
+# 버튼이 창 밑동에 딱 붙는다.
+EDGE_GAP = 14
 
 
 def format_duration(seconds):
@@ -81,10 +85,22 @@ class CountdownCanvas(TimerCanvas):
     def get_sub_colour(self):
         return self.get_time_colour() if self.finished else self.theme['dim']
 
+    def get_radius(self, width, height):
+        return min(width * RING_RATIO, height / 2 - RING_PAD / 2)
+
+    def get_time_size(self, width, height):
+        '''글자는 고리 안에 들어가야 한다. 상자만 보고 잡으면 **창이 가로로 길
+        때** 고리는 세로에 갇히는데 글자만 폭을 따라 커져 고리 밖으로 삐져나온다.
+        고리가 폭을 다 쓰던 때의 비율(반지름 = 폭 x RING_RATIO, 글자 = 폭 /
+        WIDTH_DIVISOR)을 그대로 반지름에 적용하면, 어느 쪽이 고리를 정하든
+        글자와 고리의 크기 비가 늘 같다.'''
+        return max(14, int(self.get_radius(width, height) /
+                           (RING_RATIO * self.WIDTH_DIVISOR)))
+
     def draw(self, gc, width, height):
         theme = self.theme
         cx, cy = width / 2, height / 2
-        radius = min(width * RING_RATIO, height / 2 - RING_PAD / 2)
+        radius = self.get_radius(width, height)
         if radius < 24:
             return
 
@@ -210,13 +226,14 @@ class CountdownBox(wx.Panel):
         control_row.Add(self.reset_button, 0, wx.LEFT | wx.RIGHT, BUTTON_GAP)
         control_row.AddStretchSpacer()
 
-        # 캔버스를 고리 높이에 딱 맞춰 두고 남는 세로를 세 곳에 똑같이 나눈다.
-        # 캔버스가 늘어나면 고리 아래에 보이지 않는 여백이 생겨, 눈에는 버튼
-        # 위쪽만 넓어 보인다.
+        # 캔버스를 고리 높이에 딱 맞춰 둔다. 캔버스가 늘어나면 고리 아래에
+        # 보이지 않는 여백이 생겨, 눈에는 버튼 위쪽만 넓어 보인다. 고리와 버튼
+        # 줄 사이는 창 크기와 상관없이 고정하고, 남는 세로는 덩어리 위아래로
+        # 똑같이 나눈다.
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.AddStretchSpacer()
         sizer.Add(self.canvas, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, CANVAS_MARGIN)
-        sizer.AddStretchSpacer()
+        sizer.AddSpacer(BUTTON_TOP_GAP)
         sizer.Add(control_row, 0, wx.EXPAND)
         sizer.AddStretchSpacer()
         self.SetSizer(sizer)
@@ -239,10 +256,25 @@ class CountdownBox(wx.Panel):
         event.Skip()
 
     def on_size(self, event):
-        # 고리는 가로 폭이 정하므로 캔버스 높이도 거기서 나온다.
-        width = self.GetClientSize()[0] - CANVAS_MARGIN * 2
-        target = int(width * RING_RATIO * 2) + RING_PAD
-        if width > 0 and self.canvas.GetMinSize()[1] != target:
+        '''고리는 가로 폭이 정하므로 캔버스 높이도 거기서 나온다. 다만 그
+        높이를 그대로 요구하면 **창이 가로로 길 때 캔버스가 세로를 다 먹어
+        버튼 줄이 화면 밖으로 밀려난다.** 버튼 줄과 가장자리 여백이 쓸 자리를
+        먼저 떼어 두고 남는 만큼만 준다. 페이지 높이는 창이 정하는 값이라
+        여기에 되먹임 고리는 생기지 않는다.
+
+        ★버튼 높이는 반드시 `GetMinSize`. 자리가 모자라면 사이저가 버튼을
+        최소 크기 아래로 찌그러뜨리는데, 그 찌그러진 `GetSize` 를 보고 자리를
+        다시 나누면 캔버스가 더 커지고 버튼은 더 찌그러진다 — 되먹임으로
+        버튼이 순식간에 몇 픽셀까지 작아진다.'''
+        width, height = self.GetClientSize()
+        if width <= 0:
+            return event.Skip()
+
+        ring = int((width - CANVAS_MARGIN * 2) * RING_RATIO * 2) + RING_PAD
+        room = (height - EDGE_GAP * 2 - BUTTON_TOP_GAP -
+                self.start_button.GetMinSize()[1])
+        target = max(0, min(ring, room))
+        if self.canvas.GetMinSize()[1] != target:
             self.canvas.SetMinSize(wx.Size(-1, target))
             self.Layout()
         event.Skip()

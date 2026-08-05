@@ -13,6 +13,7 @@ email: peppy0510@hotmail.com
 import json
 import math
 import os
+import time
 import wx
 
 from datetime import datetime
@@ -23,8 +24,10 @@ from cities import CITIES
 from cities import CITY_BY_NAME
 from controls import RoundButton
 from icons import draw_glyph
+from utilities import CARD_RADIUS
 from utilities import CONTROL_HEIGHT
 from utilities import Canvas
+from utilities import draw_card_rim
 from utilities import get_font
 from utilities import shade
 
@@ -39,6 +42,7 @@ ASPECT = 360.0 / (LAT_TOP - LAT_BOTTOM)
 
 ROW_HEIGHT = 54
 ROW_GAP = 4
+ROW_STRIDE = ROW_HEIGHT + ROW_GAP
 MARGIN = 14
 ADD_SIZE = 36
 
@@ -91,7 +95,7 @@ class WorldMap(Canvas):
     # 이 거리 안이면 그 핀을 가리킨 것으로 본다.
     PIN_REACH = 12
 
-    def __init__(self, parent, theme, on_hover=None):
+    def __init__(self, parent, theme, on_hover=None, on_reveal=None):
         super().__init__(parent, theme)
         self.land = get_land()
         self.pins = []
@@ -99,11 +103,13 @@ class WorldMap(Canvas):
         self.daylight = None
         self.daylight_key = None
         self.on_hover = on_hover
+        self.on_reveal = on_reveal
         # hovered 는 지도에서 직접 가리킨 핀, active 는 목록 쪽에서 알려 온 핀이다.
         self.hovered = -1
         self.active = -1
         self.Bind(wx.EVT_MOTION, self.on_motion)
         self.Bind(wx.EVT_LEAVE_WINDOW, self.on_leave)
+        self.Bind(wx.EVT_LEFT_DCLICK, self.on_dclick)
 
     def set_pins(self, pins):
         self.pins = pins
@@ -129,6 +135,13 @@ class WorldMap(Canvas):
 
     def on_leave(self, event):
         self.report(-1)
+
+    def on_dclick(self, event):
+        '''핀을 두 번 누르면 그 도시 줄을 목록에서 찾아 보여 준다. 줄이 넘쳐
+        접혀 있으면 지도에서 짚어도 아무 일도 안 일어나는 것처럼 보인다.'''
+        index = self.hit_test(*event.GetPosition())
+        if index >= 0 and self.on_reveal:
+            self.on_reveal(index)
 
     def report(self, index):
         if index == self.hovered:
@@ -168,6 +181,23 @@ class WorldMap(Canvas):
         for index, (longitude, latitude) in enumerate(self.pins):
             x, y = self.project(longitude, latitude, width, height)
             self.draw_pin(gc, x, y, index in (self.hovered, self.active))
+
+        self.draw_card_edge(gc, width, height)
+
+    def draw_card_edge(self, gc, width, height):
+        '''아래 도시 줄과 같은 카드로 보이게 다 그린 뒤 네 귀퉁이를 페이지
+        바탕색으로 도려내고 테두리를 두른다. 지도는 사각형에 그려야 투영이
+        맞으므로, 둥글게 그리는 것보다 도려내는 편이 간단하다.'''
+        theme = self.theme
+        path = gc.CreatePath()
+        path.AddRectangle(0, 0, width, height)
+        path.AddRoundedRectangle(0, 0, width, height, CARD_RADIUS)
+        gc.SetPen(wx.TRANSPARENT_PEN)
+        gc.SetBrush(wx.Brush(wx.Colour(theme['bg'])))
+        # 두 도형이 겹치는 안쪽은 짝수라 비고, 귀퉁이 조각만 칠해진다.
+        gc.FillPath(path, wx.ODDEVEN_RULE)
+
+        draw_card_rim(gc, theme['rim'], 0, 0, width, height)
 
     def get_daylight(self, width, height):
         key = (width, height, self.moment, self.theme['map_day'])
@@ -217,13 +247,28 @@ class CityList(Canvas):
     BUTTON_SIZE = 24
     BUTTON_RADIUS = 6
 
+    # 타이머 하나가 두 가지를 움직인다. 줄은 목표 자리까지 남은 거리의
+    # SCROLL_EASING 씩 좁혀 가고, 스크롤바는 마지막 움직임에서 HOLD 초를 버틴
+    # 뒤 남은 진하기의 FADE_EASING 씩 덜어 내며 사라진다.
+    STEP = 16
+    SCROLL_EASING = 0.28
+    HOLD = 0.7
+    FADE_EASING = 0.22
+
     def __init__(self, parent, theme, on_remove, on_home=None, on_hover=None):
         super().__init__(parent, theme)
         self.on_remove = on_remove
         self.on_home = on_home
         self.on_hover = on_hover
         self.rows = []
+        # offset 은 맨 위에 둘 줄, scroll 은 실제로 그려지는 픽셀 자리다.
+        # 둘이 벌어져 있는 동안이 애니메이션이다.
         self.offset = 0
+        self.scroll = 0.0
+        self.fade = 0.0
+        self.hold_until = 0.0
+        self.timer = wx.Timer(self)
+        self.Bind(wx.EVT_TIMER, self.on_animate)
         # hovered 는 목록에서 직접 가리킨 줄, active 는 지도 쪽에서 알려 온 줄이다.
         self.hovered = -1
         self.active = -1
@@ -238,6 +283,9 @@ class CityList(Canvas):
     def set_rows(self, rows):
         self.rows = rows
         self.offset = min(self.offset, max(0, len(rows) - self.get_visible_count()))
+        # 줄이 줄어 목표가 당겨졌다면, 움직이는 중이 아닐 때는 곧바로 맞춘다.
+        if not self.timer.IsRunning():
+            self.scroll = float(self.offset * ROW_STRIDE)
         self.Refresh()
 
     def set_editing(self, editing):
@@ -251,10 +299,13 @@ class CityList(Canvas):
             self.Refresh()
 
     def get_visible_count(self):
-        return max(1, self.GetClientSize()[1] // (ROW_HEIGHT + ROW_GAP))
+        return max(1, self.GetClientSize()[1] // ROW_STRIDE)
+
+    def get_row_top(self, index):
+        return index * ROW_STRIDE - self.scroll
 
     def hit_test(self, y):
-        index = int(y // (ROW_HEIGHT + ROW_GAP)) + self.offset
+        index = int((y + self.scroll) // ROW_STRIDE)
         return index if 0 <= index < len(self.rows) else -1
 
     def get_button_rect(self, width, top):
@@ -266,8 +317,7 @@ class CityList(Canvas):
         index = self.hit_test(y)
         if index < 0 or not self.editing:
             return -1
-        top = (index - self.offset) * (ROW_HEIGHT + ROW_GAP)
-        rect = self.get_button_rect(self.GetClientSize()[0], top)
+        rect = self.get_button_rect(self.GetClientSize()[0], self.get_row_top(index))
         return index if rect.Contains(wx.Point(x, y)) else -1
 
     def on_wheel(self, event):
@@ -275,7 +325,46 @@ class CityList(Canvas):
         offset = min(limit, max(0, self.offset - (1 if event.GetWheelRotation() > 0 else -1)))
         if offset != self.offset:
             self.offset = offset
-            self.Refresh()
+            self.show_scrollbar()
+
+    def reveal(self, index):
+        '''지도에서 짚어 준 줄이 접혀 있으면 보이는 자리까지 끌어 온다.
+        이미 보이는 줄이면 목록을 흔들지 않는다.'''
+        if not 0 <= index < len(self.rows):
+            return
+        count = self.get_visible_count()
+        offset = self.offset
+        if index < offset:
+            offset = index
+        elif index >= offset + count:
+            offset = index - count + 1
+        offset = min(max(0, len(self.rows) - count), max(0, offset))
+        if offset != self.offset:
+            self.offset = offset
+            self.show_scrollbar()
+
+    def show_scrollbar(self):
+        self.fade = 1.0
+        self.hold_until = time.monotonic() + self.HOLD
+        if not self.timer.IsRunning():
+            self.timer.Start(self.STEP)
+        self.Refresh()
+
+    def on_animate(self, event):
+        target = self.offset * ROW_STRIDE
+        if abs(target - self.scroll) > 0.5:
+            self.scroll += (target - self.scroll) * self.SCROLL_EASING
+        else:
+            self.scroll = float(target)
+
+        if self.fade and time.monotonic() >= self.hold_until:
+            self.fade -= self.fade * self.FADE_EASING
+            if self.fade < 0.02:
+                self.fade = 0.0
+
+        if self.scroll == target and not self.fade:
+            self.timer.Stop()
+        self.Refresh()
 
     def on_motion(self, event):
         x, y = event.GetPosition()
@@ -311,24 +400,30 @@ class CityList(Canvas):
             self.on_remove(self.rows[index]['name'])
 
     def draw(self, gc, width, height):
-        top = 0
-        shown = 0
-        for index in range(self.offset, len(self.rows)):
-            if top + ROW_HEIGHT > height:
+        # 움직이는 중에는 위아래로 반쯤 걸친 줄이 있다. 칸 밖은 걸러 낸다.
+        for index in range(len(self.rows)):
+            top = self.get_row_top(index)
+            if top >= height:
                 break
-            self.draw_row(gc, self.rows[index], index, width, top)
-            top += ROW_HEIGHT + ROW_GAP
-            shown += 1
+            if top + ROW_HEIGHT > 0:
+                self.draw_row(gc, self.rows[index], index, width, top)
 
-        if shown < len(self.rows):
-            self.draw_scrollbar(gc, width, height, shown)
+        if self.fade and self.get_content_height() > height:
+            self.draw_scrollbar(gc, width, height)
 
-    def draw_scrollbar(self, gc, width, height, shown):
-        # 줄이 넘칠 때만, 휠로 더 볼 수 있다는 표시로 얇게 둔다.
-        span = height * shown / len(self.rows)
-        top = height * self.offset / len(self.rows)
+    def get_content_height(self):
+        return max(0, len(self.rows) * ROW_STRIDE - ROW_GAP)
+
+    def draw_scrollbar(self, gc, width, height):
+        # 줄이 넘칠 때만, 휠로 더 볼 수 있다는 표시로 얇게 둔다. 움직이는 동안만
+        # 떠 있다가 사라지므로 평소에는 카드 위에 아무것도 얹히지 않는다.
+        total = self.get_content_height()
+        span = max(20, height * height / total)
+        top = (height - span) * min(1.0, max(0.0, self.scroll / (total - height)))
+        rim = wx.Colour(self.theme['rim'])
         gc.SetPen(wx.TRANSPARENT_PEN)
-        gc.SetBrush(wx.Brush(wx.Colour(self.theme['rim'])))
+        gc.SetBrush(wx.Brush(wx.Colour(rim.Red(), rim.Green(), rim.Blue(),
+                                       round(255 * self.fade))))
         gc.DrawRoundedRectangle(width - 3, top, 3, span, 1.5)
 
     def draw_row(self, gc, row, index, width, top):
@@ -336,9 +431,10 @@ class CityList(Canvas):
         # 지도에서 짚어 준 줄도 목록에서 직접 짚은 줄과 같은 색으로만 밝힌다.
         lit = index in (self.hovered, self.active)
         fill = theme['control'] if lit else theme['face']
-        gc.SetPen(wx.Pen(wx.Colour(theme['rim']), 1))
+        gc.SetPen(wx.TRANSPARENT_PEN)
         gc.SetBrush(wx.Brush(wx.Colour(fill)))
-        gc.DrawRoundedRectangle(0.5, top + 0.5, width - 1, ROW_HEIGHT - 1, 6)
+        gc.DrawRoundedRectangle(0, top, width, ROW_HEIGHT, CARD_RADIUS)
+        draw_card_rim(gc, theme['rim'], 0, top, width, ROW_HEIGHT)
 
         middle = top + ROW_HEIGHT / 2
         self.draw_phase(gc, MARGIN + 12, middle, row['daylight'], fill)
@@ -449,9 +545,10 @@ class Toolbox(Canvas):
 
     def draw(self, gc, width, height):
         self.draw_backdrop(gc)
-        gc.SetPen(wx.Pen(wx.Colour(self.theme['rim']), 1))
+        gc.SetPen(wx.TRANSPARENT_PEN)
         gc.SetBrush(wx.Brush(self.get_plate(self.theme)))
-        gc.DrawRoundedRectangle(0.5, 0.5, width - 1, height - 1, self.RADIUS)
+        gc.DrawRoundedRectangle(0, 0, width, height, self.RADIUS)
+        draw_card_rim(gc, self.theme['rim'], 0, 0, width, height, self.RADIUS)
 
 
 class SearchBox(Canvas):
@@ -615,7 +712,7 @@ class WorldBox(wx.Panel):
 
     def build_browse(self, theme):
         panel = wx.Panel(self.book)
-        self.map = WorldMap(panel, theme, self.on_map_hover)
+        self.map = WorldMap(panel, theme, self.on_map_hover, self.on_map_reveal)
         self.list = CityList(panel, theme, self.on_remove,
                              on_home=self.on_pick_home, on_hover=self.on_list_hover)
         # 목록에서 한 줄을 뺏지 않으려고 위에 띄운다. 형제로 두면 목록이 다시
@@ -624,7 +721,7 @@ class WorldBox(wx.Panel):
         self.list.Bind(wx.EVT_SIZE, self.on_list_size)
 
         sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self.map, 0, wx.EXPAND)
+        sizer.Add(self.map, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, MARGIN)
         sizer.AddSpacer(MARGIN)
         sizer.Add(self.list, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, MARGIN)
         panel.SetSizer(sizer)
@@ -652,7 +749,9 @@ class WorldBox(wx.Panel):
         self.Refresh()
 
     def on_size(self, event):
-        width = self.GetClientSize()[0]
+        # 지도 카드도 좌우 여백만큼 좁아졌다. 그 폭으로 높이를 잡아야 투영이
+        # 늘어나지 않는다.
+        width = max(0, self.GetClientSize()[0] - MARGIN * 2)
         height = int(width / ASPECT)
         if width > 0 and height != self.map_height:
             self.map_height = height
@@ -670,6 +769,9 @@ class WorldBox(wx.Panel):
     def on_map_hover(self, index):
         # 핀과 줄은 차례가 같다. 마지막 Local time 줄만 짝이 없어 그냥 비켜 간다.
         self.list.set_active(index)
+
+    def on_map_reveal(self, index):
+        self.list.reveal(index)
 
     def on_list_hover(self, index):
         self.map.set_active(index)
