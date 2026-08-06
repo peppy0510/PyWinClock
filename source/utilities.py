@@ -24,6 +24,13 @@ CARD_HEIGHT = 54
 CARD_RADIUS = 6
 CONTROL_GAP = 4
 
+# 시계 문자판과 카운트다운 고리가 자랄 수 있는 한계. 더 큰 창에서는 남는 자리를
+# 그림에 주지 않고 바깥 여백으로 돌려, 덩어리가 통째로 가운데에 선다.
+MAX_DIAL = 280
+# 시간 글자가 커지는 한계. 카운트다운은 크기를 고리에서 뽑아 MAX_DIAL 에서 저절로
+# 멈추므로, 스톱워치가 그와 나란히 서도록 그때의 값을 여기 적어 둔다.
+MAX_TIME_SIZE = 27
+
 # 직접 그리는 타이틀바의 높이. 캡션 버튼은 Windows 와 같은 46x32 로 둔다.
 TITLEBAR_HEIGHT = 32
 CAPTION_WIDTH = 46
@@ -287,9 +294,8 @@ class Canvas(wx.Panel):
 
 class TimerCanvas(Canvas):
     '''Stopwatch 와 Countdown 이 같은 폰트·배치로 시간을 그리도록 공유하는 베이스.
-    00:00:00.00 한 줄로 그리되 1/100 초만 작게 둔다.'''
+    00:00:00.00 을 한 줄로 그린다. 1/100 초도 크기와 색이 시·분·초와 같다.'''
 
-    SUB_RATIO = 0.52
     # 큰 숫자의 크기를 정하는 가로 폭 나눗수. 키우면 글자가 작아진다.
     WIDTH_DIVISOR = 13
 
@@ -300,11 +306,9 @@ class TimerCanvas(Canvas):
     def get_time_colour(self):
         return self.theme['text']
 
-    def get_sub_colour(self):
-        return self.theme['dim']
-
     def get_time_size(self, width, height):
-        return max(14, min(int(width / self.WIDTH_DIVISOR), int(height / 2.9)))
+        return max(14, min(int(width / self.WIDTH_DIVISOR), int(height / 2.9),
+                           MAX_TIME_SIZE))
 
     def get_time_height(self, width, height):
         '''그려질 시간 글자의 높이. 캔버스를 글자에 맞춰 재울 때 쓴다.'''
@@ -316,25 +320,14 @@ class TimerCanvas(Canvas):
         self.draw_time(gc, width, height)
 
     def draw_time(self, gc, width, height, offset=0):
-        size = self.get_time_size(width, height)
-        main = format_hms(self.seconds)
-        sub = format_hundredths(self.seconds)
-        main_font = get_font(size, bold=True)
-        sub_font = get_font(max(9, int(size * self.SUB_RATIO)), bold=True)
+        '''시·분·초와 1/100 초는 글꼴도 색도 같다. 나눠 그릴 것 없이 한 줄이다.'''
+        text = format_timer(self.seconds)
+        gc.SetFont(get_font(self.get_time_size(width, height), bold=True),
+                   wx.Colour(self.get_time_colour()))
+        text_width, text_height = gc.GetTextExtent(text)[:2]
 
-        gc.SetFont(main_font, wx.Colour(self.get_time_colour()))
-        main_width, main_height, main_descent = gc.GetFullTextExtent(main)[:3]
-        gc.SetFont(sub_font, wx.Colour(self.get_sub_colour()))
-        sub_width, sub_height, sub_descent = gc.GetFullTextExtent(sub)[:3]
-
-        left = (width - main_width - sub_width) / 2
         # offset 은 시간 아래에 무언가를 더 쌓을 때 그만큼 위로 밀어, 쌓은
         # 덩어리 전체가 가운데에 오게 하려고 둔다.
-        top = height / 2 - main_height / 2 + offset
-        # 디센트는 글꼴 크기에 비례하므로 상자 아래를 맞추면 작은 쪽이 내려앉는다.
-        # 숫자는 디센더가 없어 베이스라인을 맞춰야 아래가 나란해진다.
-        baseline = top + main_height - main_descent
-        gc.DrawText(sub, left + main_width, baseline - sub_height + sub_descent)
-        gc.SetFont(main_font, wx.Colour(self.get_time_colour()))
-        gc.DrawText(main, left, top)
-        return top + main_height
+        top = height / 2 - text_height / 2 + offset
+        gc.DrawText(text, (width - text_width) / 2, top)
+        return top + text_height

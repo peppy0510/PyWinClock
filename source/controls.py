@@ -19,6 +19,7 @@ from utilities import ROUND_SIZE
 from utilities import Canvas
 from utilities import draw_card_rim
 from utilities import get_font
+from utilities import mix
 from utilities import shade
 
 
@@ -232,34 +233,29 @@ class RoundButton(Pressable):
         gc.FillPath(path)
 
 
-class SettingCard(Pressable):
-    '''Windows 11 설정과 같은 카드 한 줄. 제목·설명을 왼쪽에 두고
-    오른쪽 끝에 On/Off 토글을 그린다. 카드 어디를 눌러도 토글된다.'''
+class CardBase(Pressable):
+    '''Windows 11 설정과 같은 카드 한 줄. 바탕과 제목·설명은 여기서 그리고,
+    오른쪽 끝의 조작부만 자식이 채운다. 조작부가 자리를 먼저 잡고 남는 왼쪽을
+    글자가 쓰므로, 제목은 조작부가 넓어지는 만큼 말없이 잘린다.'''
 
     PADDING = 14
-    TRACK_WIDTH = 38
-    TRACK_HEIGHT = 20
+    # 제목이 조작부에 닿지 않게 두는 자리.
+    LABEL_GAP = 12
 
-    def __init__(self, parent, theme, label, description, on_toggle=None):
-        super().__init__(parent, theme, self.toggle)
+    def __init__(self, parent, theme, label, description, on_change=None):
+        super().__init__(parent, theme, self.activate)
         self.label = label
         self.description = description
-        self.on_toggle = on_toggle
-        self.value = False
+        self.on_change = on_change
         self.SetMinSize(wx.Size(-1, CARD_HEIGHT))
 
-    def GetValue(self):
-        return self.value
+    def activate(self):
+        '''카드를 눌렀을 때 값을 바꾸는 자리.'''
 
-    def SetValue(self, value):
-        self.value = bool(value)
+    def notify(self):
         self.Refresh()
-
-    def toggle(self):
-        self.value = not self.value
-        self.Refresh()
-        if self.on_toggle:
-            self.on_toggle()
+        if self.on_change:
+            self.on_change()
 
     def draw(self, gc, width, height):
         theme = self.theme
@@ -274,12 +270,7 @@ class SettingCard(Pressable):
         gc.DrawRoundedRectangle(0, 0, width, height, CARD_RADIUS)
         draw_card_rim(gc, theme['rim'], 0, 0, width, height)
 
-        switch_left = width - self.PADDING - self.TRACK_WIDTH
-        gc.SetFont(get_font(9), wx.Colour(theme['dim']))
-        state = 'On' if self.value else 'Off'
-        state_width = gc.GetTextExtent(state)[0]
-        label_right = switch_left - state_width - 20
-
+        label_right = self.draw_control(gc, width, height) - self.LABEL_GAP
         gc.SetFont(get_font(10), wx.Colour(theme['text']))
         title_height = gc.GetTextExtent(self.label)[1]
         top = (height - title_height - 15) / 2
@@ -289,11 +280,40 @@ class SettingCard(Pressable):
         gc.DrawText(self.description, self.PADDING, top + title_height + 1)
         gc.ResetClip()
 
+    def draw_control(self, gc, width, height):
+        '''오른쪽 끝에서부터 조작부를 그리고 그 왼쪽 끝 x 를 돌려준다.'''
+        return width - self.PADDING
+
+
+class SettingCard(CardBase):
+    '''오른쪽 끝에 On/Off 토글을 둔 카드. 카드 어디를 눌러도 토글된다.'''
+
+    TRACK_WIDTH = 38
+    TRACK_HEIGHT = 20
+
+    value = False
+
+    def GetValue(self):
+        return self.value
+
+    def SetValue(self, value):
+        self.value = bool(value)
+        self.Refresh()
+
+    def activate(self):
+        self.value = not self.value
+        self.notify()
+
+    def draw_control(self, gc, width, height):
+        theme = self.theme
+        switch_left = width - self.PADDING - self.TRACK_WIDTH
+        state = 'On' if self.value else 'Off'
         gc.SetFont(get_font(9), wx.Colour(theme['dim']))
-        gc.DrawText(state, switch_left - state_width - 8,
-                    (height - gc.GetTextExtent(state)[1]) / 2)
+        state_width, state_height = gc.GetTextExtent(state)[:2]
+        gc.DrawText(state, switch_left - state_width - 8, (height - state_height) / 2)
         # 세로 자리는 반 칸 없이 딱 떨어져야 알약 위아래가 흐려지지 않는다.
         self.draw_switch(gc, switch_left, round((height - self.TRACK_HEIGHT) / 2))
+        return switch_left - state_width - 8
 
     def draw_switch(self, gc, left, top):
         theme = self.theme
@@ -337,3 +357,101 @@ class SettingCard(Pressable):
         path.AddArc(left + radius, top + radius, radius, math.pi / 2, -math.pi / 2, True)
         path.CloseSubpath()
         return path
+
+
+class ChoiceCard(CardBase):
+    '''고를 것이 몇 되지 않으면 목록을 펼칠 것 없이 칸을 나란히 붙인다. 토글과
+    달리 카드 바탕을 눌러서는 값이 바뀌지 않는다 — 어느 칸을 고르는지 눌러서
+    알릴 길이 없기 때문이다.'''
+
+    SEGMENT_HEIGHT = 26
+    SEGMENT_PADDING = 14
+    SEGMENT_RADIUS = 5
+    # 칸끼리 붙여 두면 어디까지가 한 칸인지 눈에 안 들어온다. 사이를 띄운다.
+    SEGMENT_GAP = 6
+
+    # 마우스가 얹힌 칸. 카드 밖으로 나가면 지운다.
+    marked = -1
+
+    def __init__(self, parent, theme, label, description, options, on_change=None):
+        super().__init__(parent, theme, label, description, on_change)
+        # (저장할 값, 보일 이름) 의 나열.
+        self.options = options
+        self.value = options[0][0]
+        # 칸 폭은 글꼴이 정하니 한 번만 재 둔다. 누른 자리를 따지는 데도 쓴다.
+        dc = wx.MemoryDC(wx.Bitmap(1, 1))
+        dc.SetFont(get_font(9))
+        self.segment = (max(dc.GetTextExtent(name)[0] for _, name in options) +
+                        self.SEGMENT_PADDING * 2)
+        self.Bind(wx.EVT_MOTION, self.on_motion)
+
+    def GetValue(self):
+        return self.value
+
+    def SetValue(self, value):
+        if value in [option[0] for option in self.options]:
+            self.value = value
+            self.Refresh()
+
+    def get_stride(self):
+        return self.segment + self.SEGMENT_GAP
+
+    def get_left(self, width):
+        return (width - self.PADDING - self.get_stride() * len(self.options) +
+                self.SEGMENT_GAP)
+
+    def get_index(self, position):
+        width, height = self.GetClientSize()
+        left = self.get_left(width)
+        top = (height - self.SEGMENT_HEIGHT) / 2
+        if not top <= position.y < top + self.SEGMENT_HEIGHT:
+            return -1
+        if not left <= position.x < width - self.PADDING:
+            return -1
+        # 칸 사이 빈자리는 어느 쪽도 아니다. 넘겨짚어 고르면 눌린 적 없는 값이 선다.
+        index, offset = divmod(int(position.x - left), self.get_stride())
+        return index if offset < self.segment else -1
+
+    def on_motion(self, event):
+        self.mark(self.get_index(event.GetPosition()))
+        event.Skip()
+
+    def on_leave(self, event):
+        self.mark(-1)
+        super().on_leave(event)
+
+    def mark(self, index):
+        if index != self.marked:
+            self.marked = index
+            self.Refresh()
+
+    def activate(self):
+        index = self.get_index(self.ScreenToClient(wx.GetMousePosition()))
+        if index < 0 or self.options[index][0] == self.value:
+            return
+        self.value = self.options[index][0]
+        self.notify()
+
+    def draw_control(self, gc, width, height):
+        theme = self.theme
+        left = self.get_left(width)
+        top = round((height - self.SEGMENT_HEIGHT) / 2)
+        gc.SetPen(wx.TRANSPARENT_PEN)
+
+        for index, (value, name) in enumerate(self.options):
+            x = left + self.get_stride() * index
+            chosen = value == self.value
+            if chosen:
+                fill = wx.Colour(theme['accent'])
+            elif index == self.marked:
+                fill = mix(theme['control'], theme['text'], 0.14)
+            else:
+                fill = wx.Colour(theme['control'])
+            gc.SetBrush(wx.Brush(fill))
+            gc.DrawRoundedRectangle(x, top, self.segment, self.SEGMENT_HEIGHT,
+                                    self.SEGMENT_RADIUS)
+            gc.SetFont(get_font(9), wx.Colour('#ffffff' if chosen else theme['dim']))
+            text_width, text_height = gc.GetTextExtent(name)[:2]
+            gc.DrawText(name, x + (self.segment - text_width) / 2,
+                        top + (self.SEGMENT_HEIGHT - text_height) / 2)
+        return left

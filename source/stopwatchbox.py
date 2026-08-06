@@ -11,6 +11,7 @@ import time
 import wx
 
 from controls import RoundButton
+from utilities import MAX_TIME_SIZE
 from utilities import Canvas
 from utilities import TimerCanvas
 from utilities import format_timer
@@ -28,10 +29,11 @@ TABLE_WIDTH = 300
 
 class StopwatchCanvas(TimerCanvas):
     '''캔버스를 글자 높이에 맞춰 재우므로 글꼴은 가로 폭만 보고 정한다.
-    세로까지 보면 '높이 -> 글꼴 -> 높이' 순환이 생겨 값이 수렴하지 않는다.'''
+    세로까지 보면 '높이 -> 글꼴 -> 높이' 순환이 생겨 값이 수렴하지 않는다.
+    상한은 카운트다운과 같다 — 고리가 없을 뿐 같은 크기의 시계로 보여야 한다.'''
 
     def get_time_size(self, width, height):
-        return max(14, int(width / self.WIDTH_DIVISOR))
+        return max(14, min(int(width / self.WIDTH_DIVISOR), MAX_TIME_SIZE))
 
 
 class LapList(Canvas):

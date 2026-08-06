@@ -11,6 +11,7 @@ import time
 import wx
 
 from controls import RoundButton
+from utilities import MAX_DIAL
 from utilities import Canvas
 from utilities import TimerCanvas
 from utilities import get_font
@@ -29,6 +30,9 @@ BUTTON_GAP = 10
 RING_RATIO = 0.38
 # 고리 획 두께가 반지름 밖으로 반씩 나가므로 캔버스 높이에 그만큼 더 준다.
 RING_PAD = 10
+# 고리도 시계 문자판과 같은 크기에서 멈춘다. 캔버스를 고리에 딱 맞춰 두므로
+# 여기만 막으면 남는 세로는 위아래 스트레치 스페이서가 알아서 여백으로 가른다.
+MAX_RADIUS = (MAX_DIAL - RING_PAD) / 2
 # 고리 캔버스가 제 둘레에 두는 여백.
 CANVAS_MARGIN = 8
 # 시간과 그 아래 입력칸 사이.
@@ -82,11 +86,8 @@ class CountdownCanvas(TimerCanvas):
             return self.theme['second'] if self.blink else self.theme['dim']
         return self.theme['text']
 
-    def get_sub_colour(self):
-        return self.get_time_colour() if self.finished else self.theme['dim']
-
     def get_radius(self, width, height):
-        return min(width * RING_RATIO, height / 2 - RING_PAD / 2)
+        return min(width * RING_RATIO, height / 2 - RING_PAD / 2, MAX_RADIUS)
 
     def get_time_size(self, width, height):
         '''글자는 고리 안에 들어가야 한다. 상자만 보고 잡으면 **창이 가로로 길
@@ -270,7 +271,8 @@ class CountdownBox(wx.Panel):
         if width <= 0:
             return event.Skip()
 
-        ring = int((width - CANVAS_MARGIN * 2) * RING_RATIO * 2) + RING_PAD
+        ring = min(MAX_DIAL,
+                   int((width - CANVAS_MARGIN * 2) * RING_RATIO * 2) + RING_PAD)
         room = (height - EDGE_GAP * 2 - BUTTON_TOP_GAP -
                 self.start_button.GetMinSize()[1])
         target = max(0, min(ring, room))

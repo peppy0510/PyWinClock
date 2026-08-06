@@ -183,7 +183,9 @@ class MainFrame(wx.Frame):
 
     def on_settings(self):
         self.clockbox.set_options(self.settingsbox.use24h.GetValue(),
-                                  self.settingsbox.useutc.GetValue())
+                                  self.settingsbox.useutc.GetValue(),
+                                  self.settingsbox.preset.GetValue(),
+                                  self.settingsbox.smooth.GetValue())
         self.worldbox.set_options(self.settingsbox.use24h.GetValue())
 
         style = self.GetWindowStyle()
@@ -222,6 +224,8 @@ class MainFrame(wx.Frame):
             'use_24h': self.settingsbox.use24h.GetValue(),
             'use_utc': self.settingsbox.useutc.GetValue(),
             'auto_hide_menu': self.settingsbox.autohide.GetValue(),
+            'clock_preset': self.settingsbox.preset.GetValue(),
+            'smooth_second': self.settingsbox.smooth.GetValue(),
             'cities': list(self.worldbox.names),
             'home_city': self.worldbox.home,
             'rect': self.stored_rect,

@@ -12,9 +12,12 @@ Windows 11 설정처럼 그룹 제목 아래 카드를 쌓는다.
 
 import wx
 
+from controls import ChoiceCard
 from controls import SettingCard
 from utilities import get_font
 
+
+CLOCK_PRESETS = (('classic', 'Classic'), ('minimal', 'Minimal'))
 
 MARGIN = 16
 # 카드 테두리는 선이지만 제목은 글자라, 같은 여백이면 제목이 왼쪽으로 삐져나와 보인다.
@@ -36,14 +39,21 @@ class SettingsBox(wx.Panel):
                                  'Keep the window above others', on_change)
         self.autohide = SettingCard(self, theme, 'Auto hide menu',
                                     'Show the header only on hover', on_change)
+        self.preset = ChoiceCard(self, theme, 'Clock face',
+                                 'Pick how the dial is drawn', CLOCK_PRESETS, on_change)
+        self.smooth = SettingCard(self, theme, 'Smooth second hand',
+                                  'Sweep instead of stepping once a second', on_change)
         self.dark = SettingCard(self, theme, 'Dark theme',
                                 'Use the dark colour scheme', on_change)
-        self.cards = (self.use24h, self.useutc, self.ontop, self.autohide, self.dark)
+        self.cards = (self.use24h, self.useutc, self.ontop, self.autohide,
+                      self.preset, self.smooth, self.dark)
 
         self.use24h.SetValue(settings.get('use_24h', True))
         self.useutc.SetValue(settings.get('use_utc', False))
         self.ontop.SetValue(settings.get('on_top', False))
         self.autohide.SetValue(settings.get('auto_hide_menu', True))
+        self.preset.SetValue(settings.get('clock_preset', 'classic'))
+        self.smooth.SetValue(settings.get('smooth_second', True))
         self.dark.SetValue(settings.get('theme', 'dark') == 'dark')
 
         self.groups = []
@@ -51,7 +61,7 @@ class SettingsBox(wx.Panel):
         sizer.AddSpacer(MARGIN)
         for title, cards in (('Clock', (self.use24h, self.useutc)),
                              ('Window', (self.ontop, self.autohide)),
-                             ('Appearance', (self.dark,))):
+                             ('Appearance', (self.preset, self.smooth, self.dark))):
             label = wx.StaticText(self, label=title)
             label.SetFont(get_font(10, bold=True))
             self.groups.append(label)
