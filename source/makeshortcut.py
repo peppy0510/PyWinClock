@@ -26,7 +26,7 @@ def main():
     root = os.path.dirname(source)
     icon = os.path.join(root, 'assets', 'icon', 'icon.ico')
 
-    path = ShortCut.get_user_programs_path(APP_NAME)
+    path = ShortCut.get_user_startmenu_path(APP_NAME)
     ShortCut.create(
         path,
         target_path=get_pythonw(),
