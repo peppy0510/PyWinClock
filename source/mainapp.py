@@ -20,6 +20,7 @@ from worldbox import WorldBox
 from utilities import APP_NAME
 from utilities import THEMES
 from utilities import apply_clip_siblings
+from utilities import apply_no_caption
 from utilities import apply_titlebar_theme
 from utilities import get_asset_path
 from utilities import get_frame_margins
@@ -52,6 +53,7 @@ class MainFrame(wx.Frame):
         settings = load_settings()
         super().__init__(None, title=APP_NAME, size=wx.Size(*DEFAULT_SIZE),
                          style=FRAME_STYLE)
+        apply_no_caption(self)
 
         self.theme_name = settings.get('theme', 'dark')
         theme = THEMES[self.theme_name]
