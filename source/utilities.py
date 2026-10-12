@@ -9,7 +9,9 @@ email: peppy0510@hotmail.com
 
 import ctypes
 import json
+import math
 import os
+import winreg
 import wx
 
 from ctypes import wintypes
@@ -54,7 +56,8 @@ DWMWA_CAPTION_COLOR = 35
 
 THEMES = {
     'dark': {
-        'bg': '#1b1d21',
+        # 바탕은 형제 앱(PyWinAudio·PyWinAgent)과 같은 숯색.
+        'bg': '#141517',
         'face': '#25282d',
         'rim': '#3a3f46',
         'tick': '#6b727c',
@@ -66,11 +69,17 @@ THEMES = {
         'dim': '#8b929b',
         'accent': '#4c9aff',
         'control': '#2f333a',
-        # map_sea 는 밤바다, map_day 는 낮바다. 둘의 차이가 낮/밤의 세기를 정한다.
-        'map_sea': '#15171a',
-        'map_day': '#303438',
-        'map_land': '#767c86',
+        # 일이 잘 안 됐음을 알리는 설명 글씨 (Start menu).
+        'warn': '#ff9a3d',
+        # 지도는 낮의 바다·육지를 깔고 그 위에 밤(map_night)을 map_night_alpha 만큼 덮는다.
+        # 밤이 바다와 육지를 함께 덮어야 낮/밤 경계가 띠가 아니라 한 면으로 읽힌다.
+        'map_sea': '#272a30',
+        'map_land': '#4f555e',
+        'map_night': '#0e0f12',
+        'map_night_alpha': 0.62,
         'pin': '#f2f4f7',
+        # 핀 둘레. 바다에서도 육지에서도 점이 떨어져 보이게 바탕과 반대 밝기로.
+        'pin_edge': '#0e0f12',
         'close': '#c42b1c',
         'titlebar_dark': True,
     },
@@ -87,10 +96,13 @@ THEMES = {
         'dim': '#6b727c',
         'accent': '#2b6cb0',
         'control': '#e8eaee',
-        'map_sea': '#c3cad3',
-        'map_day': '#dfe4ea',
-        'map_land': '#8f97a2',
+        'warn': '#b7791f',
+        'map_sea': '#e6eaef',
+        'map_land': '#b9c0c9',
+        'map_night': '#5b6470',
+        'map_night_alpha': 0.40,
         'pin': '#1d2126',
+        'pin_edge': '#ffffff',
         'close': '#c42b1c',
         'titlebar_dark': False,
     },
@@ -180,6 +192,18 @@ def get_frame_margins(window):
             outer.x + outer.width - rect.right, outer.y + outer.height - rect.bottom)
 
 
+def is_windows_dark():
+    '''Windows 앱 테마. 못 읽으면 어둡다고 본다 (이 앱의 기본값).'''
+    try:
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                             r'Software\Microsoft\Windows\CurrentVersion\Themes\Personalize')
+        value, _ = winreg.QueryValueEx(key, 'AppsUseLightTheme')
+        winreg.CloseKey(key)
+        return value == 0
+    except OSError:
+        return True
+
+
 def get_asset_path(*parts):
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(root, 'assets', *parts)
@@ -250,10 +274,114 @@ def draw_card_rim(gc, colour, x, y, width, height, radius=CARD_RADIUS):
     gc.FillPath(path, wx.ODDEVEN_RULE)
 
 
+FONTS = {}
+
+
 def get_font(size, bold=False):
-    weight = wx.FONTWEIGHT_BOLD if bold else wx.FONTWEIGHT_NORMAL
-    return wx.Font(size, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL,
-                   weight, faceName='Segoe UI')
+    '''반 포인트 단위로 고른다. wxPython 4.3 의 wx.Font 생성자는 실수 크기를 거절해
+    FontInfo 로 만든다.'''
+    key = (size, bold)
+    if key not in FONTS:
+        info = wx.FontInfo(size).FaceName('Segoe UI')
+        FONTS[key] = wx.Font(info.Bold() if bold else info)
+    return FONTS[key]
+
+
+INKS = {}
+WIDTHS = {}
+
+
+def get_luma(image, x, y):
+    '''세 채널 평균. 글씨는 ClearType 이라 채널마다 1/3 칸씩 어긋나 한 채널만 보면 한쪽으로 쏠려 잰다.'''
+    return (image.GetRed(x, y) + image.GetGreen(x, y) + image.GetBlue(x, y)) / 3.0
+
+
+def get_ink(font):
+    '''이 글꼴로 y=0 에 쓴 대문자 H 의 잉크 맨 윗줄과 맨 아랫줄(=기준선). 글자 상자는 위 여유와
+    아래 내림 자리를 품어 상자로 가운데를 잡으면 글씨가 위아래로 치우친다. 잉크로 잡는다.'''
+    key = font.GetNativeFontInfoDesc()
+    if key not in INKS:
+        bitmap = wx.Bitmap(80, 80, 24)
+        dc = wx.MemoryDC(bitmap)
+        dc.SetBackground(wx.BLACK_BRUSH)
+        dc.Clear()
+        gc = wx.GraphicsContext.Create(dc)
+        gc.SetFont(font, wx.WHITE)
+        gc.DrawText('H', 4, 0)
+        del gc
+        dc.SelectObject(wx.NullBitmap)
+        image = bitmap.ConvertToImage()
+        rows = [y for y in range(80) if any(get_luma(image, x, y) > 127 for x in range(80))]
+        INKS[key] = (rows[0], rows[-1]) if rows else (0, 0)
+    return INKS[key]
+
+
+def get_text_width(font, text):
+    '''그리는 것과 같은 GraphicsContext 로 잰 폭. DC 로 재면 1 px 어긋난다.'''
+    key = (font.GetNativeFontInfoDesc(), text)
+    if key not in WIDTHS:
+        dc = wx.MemoryDC(wx.Bitmap(1, 1))
+        gc = wx.GraphicsContext.Create(dc)
+        gc.SetFont(font, wx.BLACK)
+        WIDTHS[key] = int(math.ceil(gc.GetTextExtent(text)[0]))
+        del gc
+        dc.SelectObject(wx.NullBitmap)
+    return WIDTHS[key]
+
+
+SPANS = {}
+
+
+def get_ink_span(font, text, colour='#ffffff', back='#000000'):
+    '''x=0 에 쓴 글씨의 잉크 왼쪽·오른쪽 끝. GDI+ 가 재 주는 글자 폭은 오른쪽에 여유를 더 얹어
+    폭으로 가운데를 잡으면 글씨가 왼쪽으로 2~3 px 치우친다(실측). 가로 가운데는 잉크로 잡는다.
+    ClearType 은 글씨·바탕 색에 따라 테두리가 달리 번져 실제 두 색으로 잰다.'''
+    key = (font.GetNativeFontInfoDesc(), text, colour, back)
+    if key not in SPANS:
+        width = get_text_width(font, text) + 40
+        fore, ground = wx.Colour(colour), wx.Colour(back)
+        bitmap = wx.Bitmap(width, 60, 24)
+        dc = wx.MemoryDC(bitmap)
+        dc.SetBackground(wx.Brush(ground))
+        dc.Clear()
+        gc = wx.GraphicsContext.Create(dc)
+        gc.SetFont(font, fore)
+        gc.DrawText(text, 20, 10)
+        del gc
+        dc.SelectObject(wx.NullBitmap)
+        image = bitmap.ConvertToImage()
+        base = (ground.Red() + ground.Green() + ground.Blue()) / 3.0
+        limit = abs((fore.Red() + fore.Green() + fore.Blue()) / 3.0 - base) / 2.0
+        columns = [x for x in range(width)
+                   if any(abs(get_luma(image, x, y) - base) > limit for y in range(60))]
+        SPANS[key] = (columns[0] - 20, columns[-1] - 20) if columns else (0, 0)
+    return SPANS[key]
+
+
+def get_text_top(font, top, height):
+    '''top..top+height 칸의 세로 가운데에 대문자 잉크가 오게 하는 DrawText 의 y. 정수로 —
+    반 칸에 걸리면 글씨가 번진다.'''
+    ink_top, ink_bottom = get_ink(font)
+    return int(round(top + (height - (ink_bottom - ink_top + 1)) / 2.0 - ink_top))
+
+
+def draw_text_in(gc, text, rect, font, colour, align='center', back=None):
+    '''rect 안에 글씨를 놓는다. 세로는 잉크 가운데, 가로는 가운데·왼쪽·오른쪽. back 은 글씨 뒤
+    바탕색 (잉크를 그 색 위에서 잰다).'''
+    gc.SetFont(font, wx.Colour(colour))
+    width = get_text_width(font, text)
+    if back is None:
+        ink_left, ink_right = get_ink_span(font, text)
+    else:
+        ink_left, ink_right = get_ink_span(font, text, colour, back)
+    if align == 'center':
+        x = int(round(rect.x + (rect.width - (ink_right - ink_left + 1)) / 2.0 - ink_left))
+    elif align == 'right':
+        x = rect.x + rect.width - 1 - ink_right
+    else:
+        x = rect.x - ink_left
+    gc.DrawText(text, x, get_text_top(font, rect.y, rect.height))
+    return width
 
 
 class Canvas(wx.Panel):

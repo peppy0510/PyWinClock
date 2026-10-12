@@ -8,6 +8,7 @@ email: peppy0510@hotmail.com
 
 
 import os
+import time
 import wx
 
 from clockbox import ClockBox
@@ -24,12 +25,15 @@ from utilities import apply_no_caption
 from utilities import apply_titlebar_theme
 from utilities import get_asset_path
 from utilities import get_frame_margins
+from utilities import is_windows_dark
 from utilities import load_settings
 from utilities import save_settings
 
 
 TICK_INTERVAL = 50
 DEFAULT_SIZE = (440, 640)
+# Theme 이 Auto 일 때 Windows 테마가 바뀌었는지 이 간격(초)으로 본다.
+THEME_POLL = 2.0
 
 # 사이드 메뉴의 차례가 곧 페이지의 차례다. None 은 구분선이라 페이지가 없다.
 MENU_ITEMS = (('Clock', 'clock'), ('World', 'globe'), ('Stopwatch', 'stopwatch'),
@@ -55,7 +59,8 @@ class MainFrame(wx.Frame):
                          style=FRAME_STYLE)
         apply_no_caption(self)
 
-        self.theme_name = settings.get('theme', 'dark')
+        self.theme_name = self.resolve_theme(settings.get('theme', 'dark'))
+        self.theme_checked = time.monotonic()
         theme = THEMES[self.theme_name]
 
         self.set_icon()
@@ -196,7 +201,17 @@ class MainFrame(wx.Frame):
         else:
             self.SetWindowStyle(style & ~wx.STAY_ON_TOP)
 
-        theme_name = 'dark' if self.settingsbox.dark.GetValue() else 'light'
+        self.update_theme()
+
+    @staticmethod
+    def resolve_theme(choice):
+        if choice == 'auto':
+            return 'dark' if is_windows_dark() else 'light'
+        return choice if choice in THEMES else 'dark'
+
+    def update_theme(self):
+        self.theme_checked = time.monotonic()
+        theme_name = self.resolve_theme(self.settingsbox.theme_choice.GetValue())
         if theme_name != self.theme_name:
             self.theme_name = theme_name
             self.apply_theme()
@@ -210,6 +225,11 @@ class MainFrame(wx.Frame):
         if page is not None:
             page.tick()
 
+        # Auto 는 켜 둔 채 Windows 가 밤낮으로 테마를 바꿔도 따라간다.
+        if (self.settingsbox.theme_choice.GetValue() == 'auto' and
+                time.monotonic() - self.theme_checked >= THEME_POLL):
+            self.update_theme()
+
         # Auto hide menu 가 켜져 있으면 창에 마우스가 올라와 있을 때만 타이틀바를
         # 보여준다. 설정 페이지와 서랍이 열린 동안은 돌아갈 길을 남겨두려고 계속 보인다.
         visible = (not self.settingsbox.autohide.GetValue() or
@@ -221,7 +241,7 @@ class MainFrame(wx.Frame):
 
     def store_settings(self):
         save_settings({
-            'theme': self.theme_name,
+            'theme': self.settingsbox.theme_choice.GetValue(),
             'on_top': self.settingsbox.ontop.GetValue(),
             'use_24h': self.settingsbox.use24h.GetValue(),
             'use_utc': self.settingsbox.useutc.GetValue(),
@@ -237,6 +257,9 @@ class MainFrame(wx.Frame):
         self.timer.Stop()
         # 마우스를 잡은 채로 창이 사라지면 나중에 죽는다. 먼저 놓게 한다.
         self.sidemenu.close()
+        # close() 가 닫는 애니메이션 타이머를 켠다. 그대로 두면 타이머가 사라진 창으로
+        # 돌아와 힙 손상(0xc0000374)으로 죽는다.
+        self.sidemenu.timer.Stop()
         # 최소화/최대화 상태의 좌표를 저장하면 다음 실행이 이상해진다.
         if self.restore_bounds is not None:
             self.stored_rect = list(self.restore_bounds)

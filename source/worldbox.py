@@ -25,10 +25,11 @@ from cities import CITY_BY_NAME
 from controls import RoundButton
 from icons import draw_glyph
 from utilities import CARD_RADIUS
-from utilities import CONTROL_HEIGHT
 from utilities import Canvas
 from utilities import draw_card_rim
+from utilities import draw_text_in
 from utilities import get_font
+from utilities import get_ink
 from utilities import shade
 
 
@@ -40,14 +41,24 @@ LAT_TOP = 78.0
 LAT_BOTTOM = -56.0
 ASPECT = 360.0 / (LAT_TOP - LAT_BOTTOM)
 
-ROW_HEIGHT = 54
-ROW_GAP = 4
+# 도시 줄은 한 카드 안에 틈 없이 쌓고 줄 사이에 안쪽으로 들인 1 px 금을 긋는다.
+ROW_HEIGHT = 52
+ROW_GAP = 0
 ROW_STRIDE = ROW_HEIGHT + ROW_GAP
 MARGIN = 14
 ADD_SIZE = 36
+# 줄 왼쪽의 해·달 자리와 이름 사이.
+PHASE_WIDTH = 24
+NAME_GAP = 12
+# 이름 줄과 설명 줄 사이 (이름 기준선에서 설명 대문자 윗줄까지).
+LINE_GAP = 6
 
 # 낮에서 밤으로 넘어가는 띠의 폭(태양 고도 ±도). 넓을수록 경계가 은은해진다.
 TWILIGHT = 16.0
+# 지도 카드 모서리에서 도구 상자까지.
+TOOLBOX_INSET = 8
+# 가리킨 줄의 밝힘을 카드 테두리 안쪽으로 이만큼 들인다.
+ROW_INSET = 4
 
 
 def get_land():
@@ -86,12 +97,60 @@ def is_daylight(latitude, longitude, declination, sun_longitude):
     return get_sun_elevation(latitude, longitude, declination, sun_longitude) > 0
 
 
+def draw_city_text(gc, theme, row, left, right, top, height, fill, time_size, colour=None):
+    '''도시 한 줄의 글자. 시각은 right 에 붙여 세우고, 이름과 설명 두 줄은 대문자 잉크로 재서
+    줄의 세로 가운데에 놓는다 (설정 카드와 같다). 도시 목록과 도시 고르기가 함께 쓴다.'''
+    colour = colour or theme['text']
+    time_font = get_font(time_size, bold=True)
+    draw_text_in(gc, row['time'], wx.Rect(0, int(top), right, height), time_font, colour,
+                 align='right', back=fill)
+    gc.SetFont(time_font, wx.Colour(colour))
+    time_width = gc.GetTextExtent(row['time'])[0]
+
+    limit = max(0, right - time_width - NAME_GAP - left)
+    name_font, note_font = get_font(10), get_font(8)
+    name_ink, note_ink = get_ink(name_font), get_ink(note_font)
+    name_height = name_ink[1] - name_ink[0] + 1
+    note_height = note_ink[1] - note_ink[0] + 1
+    block_top = int(round(top + (height - name_height - LINE_GAP - note_height) / 2))
+    gc.SetFont(name_font, wx.Colour(colour))
+    gc.DrawText(fit_text(gc, row['label'], limit), left, block_top - name_ink[0])
+    gc.SetFont(note_font, wx.Colour(theme['dim']))
+    gc.DrawText(fit_text(gc, row['detail'], limit), left,
+                block_top + name_height + LINE_GAP - note_ink[0])
+
+
+def fit_text(gc, text, limit):
+    if gc.GetTextExtent(text)[0] <= limit:
+        return text
+    while text and gc.GetTextExtent(text + '\u2026')[0] > limit:
+        text = text[:-1]
+    return text + '\u2026'
+
+
+def draw_row_divider(gc, theme, width, top):
+    '''한 카드 안 줄 사이의 금. 양옆을 MARGIN 만큼 들인다.'''
+    gc.SetPen(wx.TRANSPARENT_PEN)
+    gc.SetBrush(wx.Brush(wx.Colour(theme['rim'])))
+    gc.DrawRectangle(MARGIN, top, width - MARGIN * 2, 1)
+
+
+def draw_row_light(gc, theme, width, top, height):
+    '''가리킨 줄. 카드 테두리와 금을 덮지 않게 안쪽으로 들인 둥근 네모로 칠하고 그 색을 돌려준다.'''
+    gc.SetPen(wx.TRANSPARENT_PEN)
+    gc.SetBrush(wx.Brush(wx.Colour(theme['control'])))
+    gc.DrawRoundedRectangle(ROW_INSET, top + ROW_INSET, width - ROW_INSET * 2,
+                            height - ROW_INSET * 2, CARD_RADIUS - 2)
+    return theme['control']
+
+
 class WorldMap(Canvas):
-    '''등간투영 세계지도. 밤바다 위에 낮바다를 부드럽게 덧칠해 낮/밤을 가른다.'''
+    '''등간투영 세계지도. 낮의 바다와 육지를 깔고 그 위에 밤을 부드럽게 덮는다.
+    핀은 (경도, 위도, 줄 번호) 다. 자리가 없는 줄(UTC)은 핀이 없어 둘의 차례가 다를 수 있다.'''
 
     # 낮의 농도를 계산할 가로 표본 수. 이 격자를 지도 크기로 늘려 부드럽게 만든다.
     GRID = 128
-    PIN_RADIUS = 4.5
+    PIN_RADIUS = 3.5
     # 이 거리 안이면 그 핀을 가리킨 것으로 본다.
     PIN_REACH = 12
 
@@ -123,11 +182,11 @@ class WorldMap(Canvas):
     def hit_test(self, x, y):
         width, height = self.GetClientSize()
         found, nearest = -1, self.PIN_REACH
-        for index, (longitude, latitude) in enumerate(self.pins):
+        for longitude, latitude, row in self.pins:
             px, py = self.project(longitude, latitude, width, height)
             span = math.hypot(px - x, py - y)
             if span < nearest:
-                found, nearest = index, span
+                found, nearest = row, span
         return found
 
     def on_motion(self, event):
@@ -161,10 +220,6 @@ class WorldMap(Canvas):
         gc.SetBrush(wx.Brush(wx.Colour(theme['map_sea'])))
         gc.DrawRectangle(0, 0, width, height)
 
-        # 낮이 든 바다를 먼저 깔고 육지를 그 위에 얹는다. 육지는 낮이든 밤이든 한 색이라
-        # 대륙 위로 경계선이 지나가지 않고, 바다의 농담만으로 낮/밤이 드러난다.
-        gc.DrawBitmap(self.get_daylight(width, height), 0, 0, width, height)
-
         gc.SetPen(wx.TRANSPARENT_PEN)
         gc.SetBrush(wx.Brush(wx.Colour(theme['map_land'])))
         for ring in self.land:
@@ -178,9 +233,14 @@ class WorldMap(Canvas):
             path.CloseSubpath()
             gc.FillPath(path)
 
-        for index, (longitude, latitude) in enumerate(self.pins):
+        # 밤은 바다와 육지를 함께 덮는다. 바다에만 칠하면 대륙 사이로 세로 띠만 남는다.
+        gc.DrawBitmap(self.get_night(width, height), 0, 0, width, height)
+
+        # 가리킨 핀은 맨 위에 오도록 나중에 그린다.
+        lit = [pin for pin in self.pins if pin[2] in (self.hovered, self.active)]
+        for longitude, latitude, row in [pin for pin in self.pins if pin not in lit] + lit:
             x, y = self.project(longitude, latitude, width, height)
-            self.draw_pin(gc, x, y, index in (self.hovered, self.active))
+            self.draw_pin(gc, x, y, row in (self.hovered, self.active))
 
         self.draw_card_edge(gc, width, height)
 
@@ -199,19 +259,20 @@ class WorldMap(Canvas):
 
         draw_card_rim(gc, theme['rim'], 0, 0, width, height)
 
-    def get_daylight(self, width, height):
-        key = (width, height, self.moment, self.theme['map_day'])
+    def get_night(self, width, height):
+        key = (width, height, self.moment, self.theme['map_night'])
         if self.daylight_key != key:
             self.daylight_key = key
-            self.daylight = self.make_daylight(width, height)
+            self.daylight = self.make_night(width, height)
         return self.daylight
 
-    def make_daylight(self, width, height):
-        '''칸마다 태양 고도를 재어 낮일수록 진한 알파를 둔 뒤, 지도 크기로 늘린다.'''
+    def make_night(self, width, height):
+        '''칸마다 태양 고도를 재어 밤일수록 진한 알파를 둔 뒤, 지도 크기로 늘린다.'''
         columns = self.GRID
         rows = max(2, round(columns / ASPECT))
         declination, sun_longitude = get_sun_position(self.moment)
         limit = math.sin(math.radians(TWILIGHT))
+        strength = self.theme['map_night_alpha']
 
         alpha = bytearray(columns * rows)
         for row in range(rows):
@@ -221,9 +282,10 @@ class WorldMap(Canvas):
                 elevation = get_sun_elevation(latitude, longitude, declination, sun_longitude)
                 ratio = min(1.0, max(0.0, (elevation + limit) / (limit * 2)))
                 # 낮과 밤의 경계를 부드럽게 잇는 smoothstep.
-                alpha[row * columns + column] = int(255 * ratio * ratio * (3 - 2 * ratio))
+                day = ratio * ratio * (3 - 2 * ratio)
+                alpha[row * columns + column] = int(255 * strength * (1 - day))
 
-        glow = wx.Colour(self.theme['map_day'])
+        glow = wx.Colour(self.theme['map_night'])
         image = wx.Image(columns, rows)
         image.SetData(bytes((glow.Red(), glow.Green(), glow.Blue())) * (columns * rows))
         image.SetAlpha(bytes(alpha))
@@ -231,10 +293,18 @@ class WorldMap(Canvas):
         return image.ConvertToBitmap()
 
     def draw_pin(self, gc, x, y, active):
-        '''점 하나로 끝낸다. 바다에서도 육지에서도 읽히도록 어두운 테를 두른다.'''
+        '''점 하나로 끝낸다. 바다에서도 육지에서도 읽히도록 pin_edge 테를 채워 두른다
+        (펜으로 두르면 반 칸에 걸려 테가 번진다). 가리킨 핀은 강조색 고리를 더한다.'''
         theme = self.theme
-        radius = self.PIN_RADIUS * (1.5 if active else 1.0)
-        gc.SetPen(wx.Pen(wx.Colour(theme['map_sea']), 2))
+        radius = self.PIN_RADIUS
+        gc.SetPen(wx.TRANSPARENT_PEN)
+        if active:
+            ring = wx.Colour(theme['accent'])
+            gc.SetBrush(wx.Brush(wx.Colour(ring.Red(), ring.Green(), ring.Blue(), 90)))
+            gc.DrawEllipse(x - radius * 3, y - radius * 3, radius * 6, radius * 6)
+        edge = radius + 1.5
+        gc.SetBrush(wx.Brush(wx.Colour(theme['pin_edge'])))
+        gc.DrawEllipse(x - edge, y - edge, edge * 2, edge * 2)
         gc.SetBrush(wx.Brush(wx.Colour(theme['accent'] if active else theme['pin'])))
         gc.DrawEllipse(x - radius, y - radius, radius * 2, radius * 2)
 
@@ -298,19 +368,30 @@ class CityList(Canvas):
             self.active = index
             self.Refresh()
 
+    def get_view_height(self):
+        '''카드의 키. 줄이 넘치면 반쯤 걸친 줄 없이 딱 떨어지는 줄 수만큼만 보인다.
+        나머지는 굴려서 본다.'''
+        height = self.GetClientSize()[1]
+        total = len(self.rows) * ROW_STRIDE
+        if total <= height:
+            return total
+        return max(1, height // ROW_STRIDE) * ROW_STRIDE
+
     def get_visible_count(self):
-        return max(1, self.GetClientSize()[1] // ROW_STRIDE)
+        return max(1, self.get_view_height() // ROW_STRIDE)
 
     def get_row_top(self, index):
         return index * ROW_STRIDE - self.scroll
 
     def hit_test(self, y):
+        if not 0 <= y < self.get_view_height():
+            return -1
         index = int((y + self.scroll) // ROW_STRIDE)
         return index if 0 <= index < len(self.rows) else -1
 
     def get_button_rect(self, width, top):
         size = self.BUTTON_SIZE
-        return wx.Rect(round(width - MARGIN - self.CLOSE_SIZE / 2 - size / 2),
+        return wx.Rect(round(width - MARGIN + 4 - size),
                        round(top + (ROW_HEIGHT - size) / 2), size, size)
 
     def hit_button(self, x, y):
@@ -400,16 +481,28 @@ class CityList(Canvas):
             self.on_remove(self.rows[index]['name'])
 
     def draw(self, gc, width, height):
-        # 움직이는 중에는 위아래로 반쯤 걸친 줄이 있다. 칸 밖은 걸러 낸다.
+        # 줄 전체가 한 카드다. 줄은 카드 안에서 굴러가고 카드 밖으로는 안 나간다.
+        theme = self.theme
+        view = self.get_view_height()
+        if not view:
+            return
+        gc.SetPen(wx.TRANSPARENT_PEN)
+        gc.SetBrush(wx.Brush(wx.Colour(theme['face'])))
+        gc.DrawRoundedRectangle(0, 0, width, view, CARD_RADIUS)
+
+        # 움직이는 중에는 위아래로 반쯤 걸친 줄이 있다. 카드 안으로 자른다.
+        gc.Clip(0, 0, width, view)
         for index in range(len(self.rows)):
             top = self.get_row_top(index)
-            if top >= height:
+            if top >= view:
                 break
             if top + ROW_HEIGHT > 0:
                 self.draw_row(gc, self.rows[index], index, width, top)
+        gc.ResetClip()
 
-        if self.fade and self.get_content_height() > height:
-            self.draw_scrollbar(gc, width, height)
+        draw_card_rim(gc, theme['rim'], 0, 0, width, view)
+        if self.fade and self.get_content_height() > view:
+            self.draw_scrollbar(gc, width, view)
 
     def get_content_height(self):
         return max(0, len(self.rows) * ROW_STRIDE - ROW_GAP)
@@ -424,34 +517,27 @@ class CityList(Canvas):
         gc.SetPen(wx.TRANSPARENT_PEN)
         gc.SetBrush(wx.Brush(wx.Colour(rim.Red(), rim.Green(), rim.Blue(),
                                        round(255 * self.fade))))
-        gc.DrawRoundedRectangle(width - 3, top, 3, span, 1.5)
+        # 카드 테두리 안쪽에 둔다.
+        gc.DrawRoundedRectangle(width - 6, top, 3, span, 1.5)
 
     def draw_row(self, gc, row, index, width, top):
         theme = self.theme
+        fill = theme['face']
+        if index:
+            draw_row_divider(gc, theme, width, top)
         # 지도에서 짚어 준 줄도 목록에서 직접 짚은 줄과 같은 색으로만 밝힌다.
-        lit = index in (self.hovered, self.active)
-        fill = theme['control'] if lit else theme['face']
-        gc.SetPen(wx.TRANSPARENT_PEN)
-        gc.SetBrush(wx.Brush(wx.Colour(fill)))
-        gc.DrawRoundedRectangle(0, top, width, ROW_HEIGHT, CARD_RADIUS)
-        draw_card_rim(gc, theme['rim'], 0, top, width, ROW_HEIGHT)
+        if index in (self.hovered, self.active):
+            fill = draw_row_light(gc, theme, width, top, ROW_HEIGHT)
 
         middle = top + ROW_HEIGHT / 2
-        self.draw_phase(gc, MARGIN + 12, middle, row['daylight'], fill)
+        self.draw_phase(gc, MARGIN + PHASE_WIDTH / 2, middle, row['daylight'], fill)
 
-        gc.SetFont(get_font(15, bold=True), wx.Colour(theme['text']))
-        time_width, time_height = gc.GetTextExtent(row['time'])[:2]
-        gc.DrawText(row['time'], MARGIN + 116 - time_width, middle - time_height / 2)
-
-        left = MARGIN + 132
-        # 날짜 줄에 시간대까지 달아 길어졌다. 오른쪽 버튼 자리를 넘지 않게 자른다.
-        limit = max(0, width - MARGIN - self.BUTTON_SIZE - left)
-        gc.SetFont(get_font(10), wx.Colour(theme['text']))
-        name_height = gc.GetTextExtent(row['label'])[1]
-        name_top = middle - name_height
-        gc.DrawText(self.fit_text(gc, row['label'], limit), left, name_top)
-        gc.SetFont(get_font(8), wx.Colour(theme['dim']))
-        gc.DrawText(self.fit_text(gc, row['detail'], limit), left, name_top + name_height + 2)
+        # 시각은 오른쪽 끝에 세운다. 고치는 동안은 줄 끝 버튼에 자리를 내준다.
+        right = width - MARGIN
+        if self.editing:
+            right = self.get_button_rect(width, top).x - NAME_GAP
+        draw_city_text(gc, theme, row, MARGIN + PHASE_WIDTH + NAME_GAP, right, top, ROW_HEIGHT,
+                       fill, 15)
 
         if self.editing:
             self.draw_button(gc, row, index, width, top)
@@ -502,7 +588,7 @@ class CityList(Canvas):
 
 
 class Toolbox(Canvas):
-    '''목록 오른쪽 아래에 떠 있는 도구 상자. 둥근 판 위에 모서리를 굴린 네모
+    '''지도 왼쪽 아래에 떠 있는 도구 상자. 둥근 판 위에 모서리를 굴린 네모
     아이콘 버튼을 늘어놓는다. 버튼은 판이 비쳐야 하므로 ghost 로 둔다.'''
 
     BUTTON = 28
@@ -552,19 +638,20 @@ class Toolbox(Canvas):
 
 
 class SearchBox(Canvas):
-    '''둥근 판 하나에 되돌아가기와 검색칸을 함께 담는다. 네이티브 TextCtrl 은
-    모서리를 굴릴 수 없어, 판은 캔버스로 그리고 그 안에 앉힌다.'''
+    '''카드 하나에 되돌아가기와 검색칸을 함께 담는다 (지도·도시 목록과 같은 카드). 네이티브
+    TextCtrl 은 모서리를 굴릴 수 없어, 판은 캔버스로 그리고 그 안에 앉힌다.'''
 
-    HEIGHT = 34
-    PADDING = 3
+    HEIGHT = 36
+    PADDING = 4
     GAP = 4
 
     def __init__(self, parent, theme, on_back):
         super().__init__(parent, theme)
         size = self.HEIGHT - self.PADDING * 2
-        # 판이 이미 알약이라 네모 자국이 드러난다. 여기서는 동그라미로 둔다.
+        # 동그라미 단추. 바탕을 한 색으로 깔면 네모 귀퉁이가 카드 둥근 모서리 밖으로
+        # 튀어나오므로 판 그림을 그대로 떠 온다.
         self.back_button = RoundButton(self, theme, 'back', on_back, tone='ghost',
-                                       size=size, backdrop=theme['control'])
+                                       size=size)
         self.field = wx.TextCtrl(self, style=wx.TE_PROCESS_ENTER | wx.NO_BORDER)
         self.field.SetHint('Search a city')
         self.SetMinSize(wx.Size(-1, self.HEIGHT))
@@ -585,19 +672,22 @@ class SearchBox(Canvas):
     def set_theme(self, theme):
         super().set_theme(theme)
         self.back_button.set_theme(theme)
-        self.back_button.set_backdrop(theme['control'])
-        self.field.SetBackgroundColour(wx.Colour(theme['control']))
+        self.field.SetBackgroundColour(wx.Colour(theme['face']))
         self.field.SetForegroundColour(wx.Colour(theme['text']))
         self.field.SetFont(get_font(10))
 
     def draw(self, gc, width, height):
         gc.SetPen(wx.TRANSPARENT_PEN)
-        gc.SetBrush(wx.Brush(wx.Colour(self.theme['control'])))
-        gc.DrawRoundedRectangle(0, 0, width, height, height / 2)
+        gc.SetBrush(wx.Brush(wx.Colour(self.theme['face'])))
+        gc.DrawRoundedRectangle(0, 0, width, height, CARD_RADIUS)
+        draw_card_rim(gc, self.theme['rim'], 0, 0, width, height)
 
 
 class CityPicker(Canvas):
-    '''검색어에 걸린 도시를 줄로 보여 준다. 이미 담은 도시는 흐리게 두고 지나친다.'''
+    '''검색어에 걸린 도시를 도시 목록과 같은 카드의 줄로 보여 준다. 이미 담은 도시는
+    흐리게 두고 지나친다.'''
+
+    ROW = 46
 
     def __init__(self, parent, theme, on_pick):
         super().__init__(parent, theme)
@@ -616,10 +706,16 @@ class CityPicker(Canvas):
         self.Refresh()
 
     def get_visible_count(self):
-        return max(1, self.GetClientSize()[1] // CONTROL_HEIGHT)
+        return max(1, self.GetClientSize()[1] // self.ROW)
+
+    def get_view_height(self):
+        '''카드의 키. 반쯤 걸친 줄 없이 보이는 줄 수만큼.'''
+        return min(len(self.rows), self.get_visible_count()) * self.ROW
 
     def hit_test(self, y):
-        index = int(y // CONTROL_HEIGHT) + self.offset
+        if not 0 <= y < self.get_view_height():
+            return -1
+        index = int(y // self.ROW) + self.offset
         return index if 0 <= index < len(self.rows) else -1
 
     def on_wheel(self, event):
@@ -647,35 +743,26 @@ class CityPicker(Canvas):
 
     def draw(self, gc, width, height):
         theme = self.theme
-        top = 0
-        for index in range(self.offset, len(self.rows)):
-            if top + CONTROL_HEIGHT > height:
-                break
+        view = self.get_view_height()
+        if not view:
+            return
+        gc.SetPen(wx.TRANSPARENT_PEN)
+        gc.SetBrush(wx.Brush(wx.Colour(theme['face'])))
+        gc.DrawRoundedRectangle(0, 0, width, view, CARD_RADIUS)
+
+        for slot in range(view // self.ROW):
+            index = self.offset + slot
             row = self.rows[index]
+            top = slot * self.ROW
+            fill = theme['face']
+            if slot:
+                draw_row_divider(gc, theme, width, top)
             if index == self.hovered and not row['taken']:
-                gc.SetPen(wx.TRANSPARENT_PEN)
-                gc.SetBrush(wx.Brush(wx.Colour(theme['control'])))
-                gc.DrawRoundedRectangle(0, top, width, CONTROL_HEIGHT, 4)
+                fill = draw_row_light(gc, theme, width, top, self.ROW)
+            draw_city_text(gc, theme, row, MARGIN, width - MARGIN, top, self.ROW, fill, 11,
+                           theme['dim'] if row['taken'] else None)
 
-            colour = theme['dim'] if row['taken'] else theme['text']
-            gc.SetFont(get_font(9), wx.Colour(colour))
-            name_width, name_height = gc.GetTextExtent(row['name'])[:2]
-            name_top = top + (CONTROL_HEIGHT - name_height) / 2
-            gc.DrawText(row['name'], MARGIN, name_top)
-
-            gc.SetFont(get_font(9), wx.Colour(theme['dim']))
-            detail_width = gc.GetTextExtent(row['detail'])[0]
-            right = width - MARGIN - detail_width
-            gc.DrawText(row['detail'], right, name_top)
-
-            # 이름 오른쪽에 시차와 시간대를 작게 잇는다. 글꼴이 달라 아래를
-            # 맞춰야 나란해 보인다.
-            gc.SetFont(get_font(8), wx.Colour(theme['dim']))
-            zone_left = MARGIN + name_width + 8
-            zone_height = gc.GetTextExtent(row['zone'])[1]
-            gc.DrawText(self.fit_text(gc, row['zone'], max(0, right - 8 - zone_left)),
-                        zone_left, name_top + name_height - zone_height)
-            top += CONTROL_HEIGHT
+        draw_card_rim(gc, theme['rim'], 0, 0, width, view)
 
 
 class WorldBox(wx.Panel):
@@ -715,10 +802,11 @@ class WorldBox(wx.Panel):
         self.map = WorldMap(panel, theme, self.on_map_hover, self.on_map_reveal)
         self.list = CityList(panel, theme, self.on_remove,
                              on_home=self.on_pick_home, on_hover=self.on_list_hover)
-        # 목록에서 한 줄을 뺏지 않으려고 위에 띄운다. 형제로 두면 목록이 다시
-        # 칠할 때마다 덧칠해 지워지므로 목록의 자식으로 만들어 부모가 클립하게 한다.
-        self.toolbox = Toolbox(self.list, theme, self.on_edit, self.on_add)
-        self.list.Bind(wx.EVT_SIZE, self.on_list_size)
+        # 지도 카드 왼쪽 아래(남태평양, 도시가 없는 자리)에 띄운다. 목록 위에 띄우면 넘친 줄의
+        # 시각을 덮고, 오른쪽 위는 좁은 창에서 서울 핀에 걸린다. 형제로
+        # 두면 지도가 다시 칠할 때마다 덧칠해 지워지므로 지도의 자식으로 만들어 부모가 클립하게 한다.
+        self.toolbox = Toolbox(self.map, theme, self.on_edit, self.on_add)
+        self.map.Bind(wx.EVT_SIZE, self.on_map_size)
 
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(self.map, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, MARGIN)
@@ -759,11 +847,11 @@ class WorldBox(wx.Panel):
             self.browse.Layout()
         event.Skip()
 
-    def on_list_size(self, event):
-        # 사이저에 담지 않았으므로 목록 안에서의 자리를 여기서 직접 준다.
-        width, height = self.list.GetClientSize()
+    def on_map_size(self, event):
+        # 사이저에 담지 않았으므로 지도 안에서의 자리를 여기서 직접 준다.
+        height = self.map.GetClientSize()[1]
         extent = Toolbox.get_extent()
-        self.toolbox.SetSize(width - extent[0], height - extent[1], *extent)
+        self.toolbox.SetSize(TOOLBOX_INSET, height - extent[1] - TOOLBOX_INSET, *extent)
         event.Skip()
 
     def on_map_hover(self, index):
@@ -825,22 +913,31 @@ class WorldBox(wx.Panel):
             return moment.strftime('%#H:%M')
         return moment.strftime('%#I:%M %p').lower()
 
-    def get_offset_text(self, moment, local):
-        '''로컬과의 시차. 30 분·45 분짜리 지역이 있어 시간만으로는 모자라다.'''
-        minutes = round((moment.utcoffset() - local.utcoffset()).total_seconds() / 60)
-        return '%s%02d:%02d' % ('-' if minutes < 0 else '+',
-                                abs(minutes) // 60, abs(minutes) % 60)
+    def get_day_text(self, moment, local):
+        '''로컬 날짜와 견준 날. 날짜를 다 적으면 줄마다 같은 글자가 되풀이된다.'''
+        days = (moment.date() - local.date()).days
+        return {0: 'Today', -1: 'Yesterday', 1: 'Tomorrow'}.get(days, moment.strftime('%b %d'))
 
-    def get_zone_text(self, offset, zone, moment, local=False):
-        '''도시 이름 오른쪽에 붙는 시차와 시간대. 약칭이 없는 지역은 zoneinfo 가
-        `+04` 처럼 오프셋을 돌려주므로 그대로 쓴다.'''
-        parts = [offset, zone]
-        abbreviation = moment.tzname()
-        if abbreviation and abbreviation != zone:
+    def get_shift_text(self, minutes, unit=''):
+        '''+9h, -3h 30m. 30 분·45 분짜리 지역이 있어 시간만으로는 모자라다.'''
+        sign = '-' if minutes < 0 else '+'
+        hours, rest = divmod(abs(minutes), 60)
+        return '%s%s%dh%s' % (unit, sign, hours, ' %02dm' % rest if rest else '')
+
+    def get_detail_text(self, moment, local, home=False):
+        '''도시 이름 아래 줄. 날, 시차, 시간대 약칭. 약칭이 없는 지역은 zoneinfo 가 +04 처럼
+        오프셋을 돌려주는데 시차와 겹치므로 뺀다. 로컬 줄의 시차는 늘 0 이라 UTC 와의 시차를 적는다.'''
+        if home:
+            minutes = round(moment.utcoffset().total_seconds() / 60)
+            parts = [self.get_shift_text(minutes, 'UTC')]
+        else:
+            minutes = round((moment.utcoffset() - local.utcoffset()).total_seconds() / 60)
+            parts = [self.get_day_text(moment, local),
+                     self.get_shift_text(minutes) if minutes else 'Same time']
+        abbreviation = moment.tzname() or ''
+        if abbreviation[:1].isalpha() and abbreviation != 'UTC':
             parts.append(abbreviation)
-        if local:
-            parts.append(LOCAL)
-        return ', '.join(parts)
+        return ' \u00b7 '.join(parts)
 
     def refresh_rows(self):
         now = datetime.now(timezone.utc)
@@ -856,28 +953,25 @@ class WorldBox(wx.Panel):
                 'name': name,
                 'label': name,
                 'time': self.get_time_text(moment),
-                'detail': '%s, %s' % (
-                    moment.strftime('%Y-%m-%d'),
-                    self.get_zone_text(self.get_offset_text(moment, local),
-                                       zone, moment)),
+                'detail': self.get_detail_text(moment, local),
                 'daylight': is_daylight(latitude, longitude, declination, sun_longitude),
                 'fixed': False,
             })
-            pins.append((longitude, latitude))
+            # 자리가 없는 줄(UTC)은 지도에 찍지 않는다. 0,0 은 기니만 바다다.
+            if zone != 'UTC':
+                pins.append((longitude, latitude, len(rows) - 1))
 
         daylight = 6 <= local.hour < 18
         label = LOCAL
-        detail = local.strftime('%Y-%m-%d')
+        detail = 'Local time \u00b7 ' + self.get_shift_text(
+            round(local.utcoffset().total_seconds() / 60), 'UTC')
         if self.home:
             _, zone, latitude, longitude = CITY_BY_NAME[self.home]
             moment = now.astimezone(ZoneInfo(zone))
             daylight = is_daylight(latitude, longitude, declination, sun_longitude)
             label = self.home
-            # 로컬 줄의 시차는 늘 0 이라 UTC 로부터의 시차를 대신 적는다.
-            offset = moment.strftime('%z')
-            detail += ', ' + self.get_zone_text('%s:%s' % (offset[:3], offset[3:]),
-                                                zone, moment, True)
-            pins.append((longitude, latitude))
+            detail = 'Local time \u00b7 ' + self.get_detail_text(moment, local, True)
+            pins.append((longitude, latitude, len(rows)))
 
         rows.append({
             'name': LOCAL,
@@ -901,11 +995,15 @@ class WorldBox(wx.Panel):
             if query and query not in name.lower() and query not in zone.lower():
                 continue
             moment = now.astimezone(ZoneInfo(zone))
+            # 검색은 시간대 이름으로도 걸리므로 설명 줄 끝에 그 이름을 둔다.
+            detail = self.get_detail_text(moment, local)
+            if zone != 'UTC':
+                detail += ' \u00b7 ' + zone.replace('_', ' ')
             rows.append({
                 'name': name,
-                'zone': self.get_zone_text(self.get_offset_text(moment, local),
-                                           zone, moment),
-                'detail': self.get_time_text(moment),
+                'label': name,
+                'time': self.get_time_text(moment),
+                'detail': detail,
                 # 내 도시를 고르는 중에는 이미 담은 도시도 다시 고를 수 있다.
                 'taken': not self.picking_home and name in self.names,
             })

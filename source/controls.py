@@ -11,12 +11,14 @@ email: peppy0510@hotmail.com
 
 
 import math
+import time
 import wx
 
 from utilities import CARD_HEIGHT
 from utilities import CARD_RADIUS
 from utilities import ROUND_SIZE
 from utilities import Canvas
+from utilities import apply_clip_siblings
 from utilities import draw_card_rim
 from utilities import get_font
 from utilities import mix
@@ -24,37 +26,94 @@ from utilities import shade
 
 
 class Pressable(Canvas):
-    '''캔버스 버튼들이 공유하는 hover / press 상태.'''
+    '''캔버스 단추들이 공유하는 hover / press. 반응하는 것은 get_hit() 자리뿐이다 — 줄의 글씨
+    위에서 단추가 밝아지거나 눌리면 안 된다(사용자). 누르면 마우스를 잡고, 그 자리 안에서
+    놓아야 눌린 것이다. 밖으로 끌고 나가면 눌린 모양이 풀리고, 놓으면 아무 일도 없다.
+    빨리 두 번 누르면 wx 는 둘째를 두 번 누름으로 보낸다 — 그것도 누름이다(on_dclick).'''
 
     def __init__(self, parent, theme, on_click):
         super().__init__(parent, theme)
         self.on_click = on_click
         self.hovered = False
         self.pressed = False
+        self.holding = False
+        self.up_position = wx.Point(-1, -1)
         self.Bind(wx.EVT_LEFT_DOWN, self.on_down)
+        self.Bind(wx.EVT_LEFT_DCLICK, self.on_dclick)
         self.Bind(wx.EVT_LEFT_UP, self.on_up)
+        self.Bind(wx.EVT_MOTION, self.on_track)
         self.Bind(wx.EVT_ENTER_WINDOW, self.on_enter)
         self.Bind(wx.EVT_LEAVE_WINDOW, self.on_leave)
+        self.Bind(wx.EVT_MOUSE_CAPTURE_LOST, self.on_lost)
+
+    def get_hit(self):
+        '''누를 수 있는 자리. None 이면 창 전체.'''
+        return None
+
+    def hits(self, position):
+        rect = self.get_hit()
+        return rect is None or rect.Contains(position)
+
+    def set_hovered(self, hovered):
+        if hovered != self.hovered:
+            self.hovered = hovered
+            self.update_cursor()
+            self.Refresh()
+
+    def update_cursor(self):
+        self.SetCursor(wx.Cursor(wx.CURSOR_HAND if self.hovered else wx.CURSOR_ARROW))
+
+    def on_track(self, event):
+        inside = self.hits(event.GetPosition())
+        self.set_hovered(inside)
+        if self.holding and inside != self.pressed:
+            self.pressed = inside
+            self.Refresh()
+        event.Skip()
 
     def on_down(self, event):
+        if not self.hits(event.GetPosition()):
+            event.Skip()
+            return
+        self.holding = True
         self.pressed = True
+        if not self.HasCapture():
+            self.CaptureMouse()
         self.Refresh()
+
+    def on_dclick(self, event):
+        self.on_down(event)
 
     def on_up(self, event):
-        was_pressed = self.pressed
+        if self.HasCapture():
+            self.ReleaseMouse()
+        # 누른 일이 어느 칸인지(고르기·보이스 칸)는 놓은 자리로 정한다. 전역 커서 자리를 다시
+        # 읽으면 이벤트와 어긋날 수 있다.
+        self.up_position = event.GetPosition()
+        clicked = self.holding and self.hits(self.up_position)
+        self.holding = False
         self.pressed = False
         self.Refresh()
-        if was_pressed and self.hovered and self.on_click:
+        if clicked and self.on_click:
             self.on_click()
 
-    def on_enter(self, event):
-        self.hovered = True
-        self.Refresh()
-
-    def on_leave(self, event):
-        self.hovered = False
+    def on_lost(self, event):
+        self.holding = False
         self.pressed = False
         self.Refresh()
+
+    def on_enter(self, event):
+        self.set_hovered(self.hits(event.GetPosition()))
+
+    def on_leave(self, event):
+        # 잡고 있는 동안은 밖으로 나가도 놓을 때까지 기다린다. 눌린 모양만 풀린다.
+        if self.holding:
+            if self.pressed:
+                self.pressed = False
+                self.Refresh()
+            self.set_hovered(False)
+            return
+        self.set_hovered(False)
 
 
 class RoundButton(Pressable):
@@ -241,6 +300,8 @@ class CardBase(Pressable):
     PADDING = 14
     # 제목이 조작부에 닿지 않게 두는 자리.
     LABEL_GAP = 12
+    # 설명 줄의 색 이름. 일의 결과를 알릴 때 warn 으로 바꾼다.
+    tone = 'dim'
 
     def __init__(self, parent, theme, label, description, on_change=None):
         super().__init__(parent, theme, self.activate)
@@ -276,7 +337,7 @@ class CardBase(Pressable):
         top = (height - title_height - 15) / 2
         gc.Clip(self.PADDING, 0, max(0, label_right - self.PADDING), height)
         gc.DrawText(self.label, self.PADDING, top)
-        gc.SetFont(get_font(8), wx.Colour(theme['dim']))
+        gc.SetFont(get_font(8), wx.Colour(theme[self.tone]))
         gc.DrawText(self.description, self.PADDING, top + title_height + 1)
         gc.ResetClip()
 
@@ -426,7 +487,7 @@ class ChoiceCard(CardBase):
             self.Refresh()
 
     def activate(self):
-        index = self.get_index(self.ScreenToClient(wx.GetMousePosition()))
+        index = self.get_index(self.up_position)
         if index < 0 or self.options[index][0] == self.value:
             return
         self.value = self.options[index][0]
@@ -455,3 +516,325 @@ class ChoiceCard(CardBase):
             gc.DrawText(name, x + (self.segment - text_width) / 2,
                         top + (self.SEGMENT_HEIGHT - text_height) / 2)
         return left
+
+
+class ButtonCard(CardBase):
+    '''오른쪽 끝에 누름 단추 하나 (PyWinAudio 의 ButtonCard). 값이 아니라 한 번의 동작을 맡는다.
+    단추 자리만 반응한다.'''
+
+    BUTTON_HEIGHT = 26
+    BUTTON_PADDING = 16
+    BUTTON_RADIUS = 5
+
+    def __init__(self, parent, theme, label, description, caption, on_click):
+        super().__init__(parent, theme, label, description)
+        self.action = on_click
+        self.caption = caption
+        dc = wx.MemoryDC(wx.Bitmap(1, 1))
+        dc.SetFont(get_font(9))
+        self.button = dc.GetTextExtent(caption)[0] + self.BUTTON_PADDING * 2
+
+    def set_description(self, description, tone='dim'):
+        self.description = description
+        self.tone = tone
+        self.Refresh()
+
+    def get_button_rect(self):
+        width, height = self.GetClientSize()
+        return wx.Rect(width - self.PADDING - self.button,
+                       round((height - self.BUTTON_HEIGHT) / 2),
+                       self.button, self.BUTTON_HEIGHT)
+
+    def get_hit(self):
+        return self.get_button_rect()
+
+    def activate(self):
+        self.action()
+
+    def draw(self, gc, width, height):
+        # 카드 바탕은 눌러도 반응하지 않는다. 밝히는 것은 단추뿐이다.
+        pressed, hovered = self.pressed, self.hovered
+        self.pressed = self.hovered = False
+        super().draw(gc, width, height)
+        self.pressed, self.hovered = pressed, hovered
+        self.draw_button(gc)
+
+    def draw_control(self, gc, width, height):
+        return self.get_button_rect().x
+
+    def draw_button(self, gc):
+        theme = self.theme
+        rect = self.get_button_rect()
+        fill = theme['control']
+        if self.pressed:
+            fill = shade(fill, 0.90)
+        elif self.hovered:
+            fill = mix(theme['control'], theme['text'], 0.14)
+        gc.SetPen(wx.TRANSPARENT_PEN)
+        gc.SetBrush(wx.Brush(wx.Colour(fill)))
+        gc.DrawRoundedRectangle(rect.x, rect.y, rect.width, rect.height, self.BUTTON_RADIUS)
+        gc.SetFont(get_font(9), wx.Colour(theme['text']))
+        text_width, text_height = gc.GetTextExtent(self.caption)[:2]
+        gc.DrawText(self.caption, rect.x + (rect.width - text_width) / 2,
+                    rect.y + (rect.height - text_height) / 2)
+
+
+class ScrollBar(Canvas):
+    '''실제로 움직일 때만 잠깐 뜨는 가는 막대. 판 바깥 여백 위에 얹히므로
+    바탕은 페이지 색 그대로 칠하면 된다.'''
+
+    WIDTH = 4
+    # 막대 자리(WIDTH + INSET * 2)는 판 페이지의 오른쪽 여백(PANEL_MARGIN) 안에 든다.
+    # 바탕을 칠하는 창이라 이보다 넓으면 판 오른쪽 끝을 덮는다.
+    INSET = 2
+    RADIUS = 2
+    HOLD = 700
+    # 사라지는 데 걸리는 시간. 프레임 수가 아니라 시각으로 잰다 — 타이머가 밀려도
+    # 같은 빠르기로 지고, 16ms 마다 다시 칠해 계단이 안 보인다.
+    FADE_MS = 400
+    STEP = 16
+
+    def __init__(self, parent, theme):
+        super().__init__(parent, theme)
+        self.fade = 0.0
+        self.span = 0.0
+        self.ratio = 1.0
+        self.shown_at = 0.0
+        self.timer = wx.Timer(self)
+        self.Bind(wx.EVT_TIMER, self.on_fade)
+
+    def set_span(self, ratio, span):
+        '''ratio 는 보이는 만큼의 비율, span 은 굴린 자리의 비율이다.'''
+        self.ratio = min(1.0, max(0.0, ratio))
+        self.span = min(1.0, max(0.0, span))
+        self.Refresh()
+
+    def show(self):
+        self.fade = 1.0
+        self.shown_at = time.monotonic()
+        if not self.timer.IsRunning():
+            self.timer.Start(self.STEP)
+        self.Refresh()
+
+    def on_fade(self, event):
+        elapsed = (time.monotonic() - self.shown_at) * 1000 - self.HOLD
+        if elapsed <= 0:
+            return
+        progress = min(1.0, elapsed / self.FADE_MS)
+        # 처음엔 빠르게 옅어지다 끝에서 늦춘다 (ease-out). 직선으로 빼면 끝이 툭 끊긴다.
+        self.fade = (1.0 - progress) ** 2
+        if progress >= 1.0:
+            self.fade = 0.0
+            self.timer.Stop()
+        self.Refresh()
+
+    def draw(self, gc, width, height):
+        if self.fade <= 0 or self.ratio >= 1.0:
+            return
+        colour = wx.Colour(self.theme['rim'])
+        colour = wx.Colour(colour.Red(), colour.Green(), colour.Blue(),
+                           int(255 * self.fade))
+        thumb = max(24, height * self.ratio)
+        top = (height - thumb) * self.span
+        gc.SetPen(wx.TRANSPARENT_PEN)
+        gc.SetBrush(wx.Brush(colour))
+        gc.DrawRoundedRectangle(self.INSET, top, self.WIDTH, thumb, self.RADIUS)
+
+
+class ScrollArea(wx.Panel):
+    '''세로로 굴리는 자리. wx.ScrolledWindow 를 쓰지 않는다 — 네이티브 막대는
+    다크 테마에서 혼자 하얗게 남고 wx 로는 색을 못 준다. 대신 내용판을 통째로
+    위아래로 옮기고 막대는 우리가 그린다.
+
+    바퀴 이벤트는 wx 에서 부모로 올라가지 않으므로, 내용판에 담긴 자식마다
+    따로 걸어 주어야 카드 위에서도 굴러간다 (`bind_wheel`).'''
+
+    LINE = 42
+
+    def __init__(self, parent, theme):
+        super().__init__(parent)
+        self.theme = theme
+        self.offset = 0
+        self.content = wx.Panel(self)
+        self.content.SetDoubleBuffered(True)
+        self.bar = ScrollBar(self, theme)
+        # 내용판이 다시 칠할 때 위에 얹힌 막대를 지우지 않게 한다.
+        apply_clip_siblings(self.content)
+        self.Bind(wx.EVT_SIZE, self.on_size)
+        self.bind_wheel(self)
+
+    def set_theme(self, theme):
+        self.theme = theme
+        self.SetBackgroundColour(wx.Colour(theme['bg']))
+        self.content.SetBackgroundColour(wx.Colour(theme['bg']))
+        self.bar.set_theme(theme)
+
+    def bind_wheel(self, window):
+        window.Bind(wx.EVT_MOUSEWHEEL, self.on_wheel)
+
+    def bind_children(self):
+        '''내용판을 다 채운 뒤 한 번 부른다.'''
+        def walk(window):
+            for child in window.GetChildren():
+                if child is not self.bar:
+                    self.bind_wheel(child)
+                    walk(child)
+        walk(self.content)
+
+    # 넓은 창에서 묶음을 여러 단으로 펴는 기준 폭 (사용량 페이지와 같다).
+    TWO_COLUMNS = 820
+    THREE_COLUMNS = 1240
+
+    groups = None
+    columns = 0
+    # 단과 단 사이.
+    column_gap = 0
+    # ★페이지가 'wide' 라는 이름을 따로 쓸 수 있다 (설정의 Wide layout 카드). 겹치지 않게.
+    wide_columns = True
+
+    def set_groups(self, top, groups, side=0, bottom=0):
+        '''묶음(세로 사이저)들을 넘긴다. 폭에 따라 단에 나눠 담는다. side 는 창 가장자리와
+        단 사이 여백, bottom 은 마지막 묶음 아래에 더 둘 자리다.'''
+        self.groups = list(groups)
+        self.root = wx.BoxSizer(wx.VERTICAL)
+        self.root.AddSpacer(top)
+        self.row = wx.BoxSizer(wx.HORIZONTAL)
+        self.root.Add(self.row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, side)
+        if bottom:
+            self.root.AddSpacer(bottom)
+        self.content.SetSizer(self.root)
+        self.columns = 0
+        self.arrange()
+
+    def set_wide(self, wide):
+        if wide != self.wide_columns:
+            self.wide_columns = wide
+            self.arrange()
+
+    def get_column_count(self):
+        width = self.GetClientSize()[0]
+        if not self.wide_columns or width < self.TWO_COLUMNS:
+            return 1
+        return 3 if width >= self.THREE_COLUMNS else 2
+
+    @staticmethod
+    def split_columns(heights, count):
+        '''차례를 지킨 채 count 개의 단으로 끊는다. 가장 높은 단이 가장 낮아지는 자리를
+        다 따져 고른다 (묶음이 열 개 안쪽이라 순식간이다). 단마다 첫 묶음의 자리를 준다.'''
+        prefix = [0]
+        for height in heights:
+            prefix.append(prefix[-1] + height)
+        n = len(heights)
+        best = {1: prefix[:]}
+        cut = {1: [0] * (n + 1)}
+        for c in range(2, count + 1):
+            best[c], cut[c] = [], []
+            for i in range(n + 1):
+                # 같으면 뒤쪽에서 끊는다. 묶음이 단보다 적을 때 빈 단이 앞이 아니라 끝에 남게.
+                choice = min(range(i, -1, -1),
+                             key=lambda j: max(best[c - 1][j], prefix[i] - prefix[j]))
+                best[c].append(max(best[c - 1][choice], prefix[i] - prefix[choice]))
+                cut[c].append(choice)
+        starts, end = [], n
+        for c in range(count, 0, -1):
+            starts.insert(0, cut[c][end])
+            end = cut[c][end]
+        return starts
+
+    def arrange(self, force=False):
+        '''문서의 단처럼. 첫 단을 위에서 아래로 채우고 다음 단으로 넘어간다. 차례는
+        그대로, 끊는 자리는 단 높이가 가장 고르게 되는 곳.'''
+        if not self.groups:
+            return
+        count = self.get_column_count()
+        if count == self.columns and not force:
+            return
+        self.columns = count
+        # 옮기고 다시 재는 동안의 중간 모습이 칠해지면 번쩍인다. 다 끝난 뒤 한 번만 칠한다.
+        self.Freeze()
+        try:
+            self.arrange_columns(count)
+        finally:
+            self.Thaw()
+        self.Refresh()
+
+    def arrange_columns(self, count):
+        # 키는 단 폭에서 재야 맞다. 보이스 격자처럼 폭 따라 줄이 바뀌는 묶음은 담기 전과
+        # 담은 뒤의 키가 다르다. 한 번 담아 펼친 뒤 다시 재서, 끊는 자리가 바뀌면 다시 담는다.
+        starts = None
+        for _ in range(3):
+            heights = [group.CalcMin()[1] for group in self.groups]
+            fresh = self.split_columns(heights, count)
+            if fresh == starts:
+                break
+            starts = fresh
+            self.fill_columns(starts, count)
+            self.content.SetSize(self.GetClientSize()[0], self.content.GetSize()[1])
+            self.content.Layout()
+        self.fit()
+
+    def fill_columns(self, starts, count):
+        # 단을 지우기 전에 묶음부터 떼어 낸다. Clear 는 담긴 사이저까지 지운다.
+        for item in list(self.row.GetChildren()):
+            column = item.GetSizer()
+            if column:
+                for group in self.groups:
+                    column.Detach(group)
+        self.row.Clear(delete_windows=False)
+        columns = []
+        for index in range(count):
+            if index and self.column_gap:
+                self.row.AddSpacer(self.column_gap)
+            column = wx.BoxSizer(wx.VERTICAL)
+            self.row.Add(column, 1, wx.EXPAND)
+            columns.append(column)
+        for index, group in enumerate(self.groups):
+            column = max(c for c, start in enumerate(starts) if index >= start)
+            columns[column].Add(group, 0, wx.EXPAND)
+
+    def get_extent(self):
+        sizer = self.content.GetSizer()
+        return sizer.GetMinSize()[1] if sizer else 0
+
+    def get_limit(self):
+        return max(0, self.get_extent() - self.GetClientSize()[1])
+
+    def scroll_to(self, offset):
+        offset = min(self.get_limit(), max(0, offset))
+        if offset == self.offset:
+            return False
+        self.offset = offset
+        self.content.SetPosition(wx.Point(0, -offset))
+        return True
+
+    def on_wheel(self, event):
+        limit = self.get_limit()
+        if limit <= 0:
+            return
+        lines = event.GetWheelRotation() / float(event.GetWheelDelta())
+        self.scroll_to(self.offset - int(round(lines)) * self.LINE)
+        self.update_bar()
+        self.bar.show()
+
+    def update_bar(self):
+        extent, height = self.get_extent(), self.GetClientSize()[1]
+        limit = self.get_limit()
+        self.bar.set_span(height / float(extent) if extent else 1.0,
+                          self.offset / float(limit) if limit else 0.0)
+
+    def fit(self):
+        '''내용의 높이가 달라졌을 때 다시 잡는다.'''
+        width, height = self.GetClientSize()
+        self.content.SetSize(0, -self.offset, width, max(height, self.get_extent()))
+        # 창이 커져 아래가 비면 끌어올린다.
+        self.scroll_to(self.offset)
+        self.update_bar()
+
+    def on_size(self, event):
+        width, height = self.GetClientSize()
+        bar_width = ScrollBar.WIDTH + ScrollBar.INSET * 2
+        self.arrange()
+        self.fit()
+        self.bar.SetSize(width - bar_width, 0, bar_width, height)
+        self.bar.Raise()
+        event.Skip()
