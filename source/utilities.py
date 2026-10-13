@@ -42,6 +42,9 @@ SWP_NOZORDER = 0x0004
 SWP_NOACTIVATE = 0x0010
 SWP_FRAMECHANGED = 0x0020
 
+RDW_ALLCHILDREN = 0x0080
+RDW_UPDATENOW = 0x0100
+
 DWMWA_EXTENDED_FRAME_BOUNDS = 9
 DWMWA_USE_IMMERSIVE_DARK_MODE = 20
 DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 = 19
@@ -152,6 +155,15 @@ def apply_clip_siblings(window):
         handle = wintypes.HWND(window.GetHandle())
         style = ctypes.windll.user32.GetWindowLongW(handle, GWL_STYLE)
         ctypes.windll.user32.SetWindowLongW(handle, GWL_STYLE, style | WS_CLIPSIBLINGS)
+    except Exception:
+        pass
+
+
+def paint_now(window):
+    # WM_PAINT is only generated once the queue is empty, which a moving mouse never lets happen
+    try:
+        ctypes.windll.user32.RedrawWindow(wintypes.HWND(window.GetHandle()), None, None,
+                                          RDW_UPDATENOW | RDW_ALLCHILDREN)
     except Exception:
         pass
 
