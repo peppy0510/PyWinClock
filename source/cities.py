@@ -4,9 +4,6 @@
 '''
 author: Taehong Kim
 email: peppy0510@hotmail.com
-
-세계 시각에 올릴 수 있는 도시. (이름, IANA 시간대, 위도, 경도) 순이다.
-같은 시간대라도 지도 위 핀 자리가 다르므로 도시마다 좌표를 둔다.
 '''
 
 

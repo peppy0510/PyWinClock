@@ -32,17 +32,13 @@ from utilities import save_settings
 
 TICK_INTERVAL = 50
 DEFAULT_SIZE = (440, 640)
-# Theme 이 Auto 일 때 Windows 테마가 바뀌었는지 이 간격(초)으로 본다.
 THEME_POLL = 2.0
 
-# 사이드 메뉴의 차례가 곧 페이지의 차례다. None 은 구분선이라 페이지가 없다.
 MENU_ITEMS = (('Clock', 'clock'), ('World', 'globe'), ('Stopwatch', 'stopwatch'),
               ('Countdown', 'countdown'), None, ('Settings', 'settings'))
 
-# 캡션을 떼고 그 자리를 직접 그린다. 크기 조절과 스냅은 그대로 남는다.
 FRAME_STYLE = wx.DEFAULT_FRAME_STYLE & ~wx.CAPTION
 
-# 기억된 위치가 이만큼도 화면에 안 걸리면 사라진 모니터로 본다.
 MIN_VISIBLE_WIDTH = 120
 MIN_VISIBLE_HEIGHT = 32
 
@@ -50,7 +46,6 @@ MIN_VISIBLE_HEIGHT = 32
 class MainFrame(wx.Frame):
 
     stored_rect = None
-    # 흉내 낸 최대화 이전의 자리. None 이면 최대화 상태가 아니다.
     restore_bounds = None
 
     def __init__(self):
@@ -77,7 +72,6 @@ class MainFrame(wx.Frame):
 
         self.titlebar = TitleBar(self, theme, self.on_menu, self.toggle_maximize)
         self.sidemenu = SideMenu(self, theme, MENU_ITEMS, self.on_select)
-        # 서랍은 페이지 위에 떠 있다. 페이지 쪽이 형제를 클립해 주어야 살아남는다.
         apply_clip_siblings(self.book)
 
         sizer = wx.BoxSizer(wx.VERTICAL)
@@ -99,7 +93,6 @@ class MainFrame(wx.Frame):
         self.restore_rect(settings)
 
     def is_rect_visible(self, rect):
-        # 모니터 구성이 바뀌면 기억된 좌표가 아무 화면에도 안 걸릴 수 있다.
         for index in range(wx.Display.GetCount()):
             shared = wx.Display(index).GetClientArea().Intersect(rect)
             if shared.width >= MIN_VISIBLE_WIDTH and shared.height >= MIN_VISIBLE_HEIGHT:
@@ -122,7 +115,6 @@ class MainFrame(wx.Frame):
                 return
             self.SetSize(rect.GetSize())
         else:
-            # rect 이전 버전은 크기만 저장했다. 그 값이라도 살려 쓴다.
             size = settings.get('size')
             if size and len(size) == 2:
                 self.SetSize(wx.Size(size[0], size[1]))
@@ -159,8 +151,8 @@ class MainFrame(wx.Frame):
         self.on_tick(None)
 
     def toggle_maximize(self):
-        '''캡션이 없는 창을 Windows 가 최대화하면 보이지 않는 여백만큼 화면
-        밖으로 넘치고 작업 표시줄까지 덮는다. 작업 영역에 맞춰 직접 채운다.'''
+        # a captionless window maximized by Windows overflows by its invisible border
+        # and covers the taskbar, so fill the work area by hand
         if self.restore_bounds is not None:
             bounds, self.restore_bounds = self.restore_bounds, None
             self.SetRect(wx.Rect(*bounds))
@@ -175,7 +167,6 @@ class MainFrame(wx.Frame):
         self.titlebar.set_maximized(self.restore_bounds is not None)
 
     def on_maximize(self, event):
-        # 화면 위로 던지거나 Win+Up 을 눌러도 같은 자리에 오도록 되돌려 잡는다.
         if not self.IsMaximized():
             return
         self.Maximize(False)
@@ -225,13 +216,10 @@ class MainFrame(wx.Frame):
         if page is not None:
             page.tick()
 
-        # Auto 는 켜 둔 채 Windows 가 밤낮으로 테마를 바꿔도 따라간다.
         if (self.settingsbox.theme_choice.GetValue() == 'auto' and
                 time.monotonic() - self.theme_checked >= THEME_POLL):
             self.update_theme()
 
-        # Auto hide menu 가 켜져 있으면 창에 마우스가 올라와 있을 때만 타이틀바를
-        # 보여준다. 설정 페이지와 서랍이 열린 동안은 돌아갈 길을 남겨두려고 계속 보인다.
         visible = (not self.settingsbox.autohide.GetValue() or
                    page is self.settingsbox or
                    self.sidemenu.is_open() or
@@ -255,12 +243,10 @@ class MainFrame(wx.Frame):
 
     def on_close(self, event):
         self.timer.Stop()
-        # 마우스를 잡은 채로 창이 사라지면 나중에 죽는다. 먼저 놓게 한다.
+        # close() releases the mouse capture but starts the slide timer, which would
+        # fire into the destroyed window (0xc0000374)
         self.sidemenu.close()
-        # close() 가 닫는 애니메이션 타이머를 켠다. 그대로 두면 타이머가 사라진 창으로
-        # 돌아와 힙 손상(0xc0000374)으로 죽는다.
         self.sidemenu.timer.Stop()
-        # 최소화/최대화 상태의 좌표를 저장하면 다음 실행이 이상해진다.
         if self.restore_bounds is not None:
             self.stored_rect = list(self.restore_bounds)
         elif self.IsIconized() is False and self.IsMaximized() is False:

@@ -4,14 +4,6 @@
 '''
 author: Taehong Kim
 email: peppy0510@hotmail.com
-
-Natural Earth 의 육지 폴리곤을 그리기 좋은 크기로 줄여 assets/map/land.json 을 만든다.
-원본은 퍼블릭 도메인이고 아래 주소에서 받는다. 받은 파일은 저장소에 두지 않는다.
-
-    https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_land.geojson
-    python source/makemap.py ne_110m_land.geojson
-
-좌표는 1/SCALE 도 단위 정수로 눕혀 [경도, 위도, 경도, 위도, ...] 한 줄로 담는다.
 '''
 
 
@@ -39,7 +31,6 @@ def get_distance(point, start, end):
 
 
 def simplify(points, epsilon):
-    '''Douglas-Peucker. 110m 원본도 화면에서는 과하게 촘촘하다.'''
     if len(points) < 3:
         return points
 
@@ -62,7 +53,6 @@ def get_rings(feature):
 
 
 def is_large_enough(ring):
-    # 화면에서 한 점으로 뭉개지는 섬은 버린다.
     longitudes = [point[0] for point in ring]
     latitudes = [point[1] for point in ring]
     return (max(longitudes) - min(longitudes) >= MIN_SPAN or

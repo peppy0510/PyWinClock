@@ -4,8 +4,6 @@
 '''
 author: Taehong Kim
 email: peppy0510@hotmail.com
-
-assets/icon/icon.ico 를 생성한다. 시계 문자판을 그대로 그려 쓴다.
 '''
 
 

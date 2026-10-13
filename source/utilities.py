@@ -19,21 +19,16 @@ from ctypes import wintypes
 
 APP_NAME = 'PyWinClock'
 
-# Stopwatch / Countdown 이 같은 크기를 쓰도록 여기서만 정의한다.
 CONTROL_HEIGHT = 28
 ROUND_SIZE = 46
 CARD_HEIGHT = 54
 CARD_RADIUS = 6
 CONTROL_GAP = 4
 
-# 시계 문자판과 카운트다운 고리가 자랄 수 있는 한계. 더 큰 창에서는 남는 자리를
-# 그림에 주지 않고 바깥 여백으로 돌려, 덩어리가 통째로 가운데에 선다.
 MAX_DIAL = 280
-# 시간 글자가 커지는 한계. 카운트다운은 크기를 고리에서 뽑아 MAX_DIAL 에서 저절로
-# 멈추므로, 스톱워치가 그와 나란히 서도록 그때의 값을 여기 적어 둔다.
+# the countdown text size at MAX_DIAL, recompute when MAX_DIAL changes
 MAX_TIME_SIZE = 27
 
-# 직접 그리는 타이틀바의 높이. 캡션 버튼은 Windows 와 같은 46x32 로 둔다.
 TITLEBAR_HEIGHT = 32
 CAPTION_WIDTH = 46
 
@@ -56,7 +51,6 @@ DWMWA_CAPTION_COLOR = 35
 
 THEMES = {
     'dark': {
-        # 바탕은 형제 앱(PyWinAudio·PyWinAgent)과 같은 숯색.
         'bg': '#141517',
         'face': '#25282d',
         'rim': '#3a3f46',
@@ -69,16 +63,12 @@ THEMES = {
         'dim': '#8b929b',
         'accent': '#4c9aff',
         'control': '#2f333a',
-        # 일이 잘 안 됐음을 알리는 설명 글씨 (Start menu).
         'warn': '#ff9a3d',
-        # 지도는 낮의 바다·육지를 깔고 그 위에 밤(map_night)을 map_night_alpha 만큼 덮는다.
-        # 밤이 바다와 육지를 함께 덮어야 낮/밤 경계가 띠가 아니라 한 면으로 읽힌다.
         'map_sea': '#272a30',
         'map_land': '#4f555e',
         'map_night': '#0e0f12',
         'map_night_alpha': 0.62,
         'pin': '#f2f4f7',
-        # 핀 둘레. 바다에서도 육지에서도 점이 떨어져 보이게 바탕과 반대 밝기로.
         'pin_edge': '#0e0f12',
         'close': '#c42b1c',
         'titlebar_dark': True,
@@ -115,16 +105,11 @@ class WindowRect(ctypes.Structure):
 
 
 def get_colour_ref(colour):
-    """DWM 은 COLORREF, 곧 0x00BBGGRR 을 받는다."""
     value = wx.Colour(colour)
     return (value.Blue() << 16) | (value.Green() << 8) | value.Red()
 
 
 def apply_titlebar_theme(window, theme):
-    """Win11 DWM 창틀. 이미 보이는 창은 프레임을 다시 계산시켜야 반영된다.
-
-    캡션을 떼어낸 창에도 위쪽에는 크기 조절용 띠가 7px 남고 그 자리를 DWM 이
-    캡션 색으로 칠한다. 배경색을 그대로 넣어야 우리가 그리는 헤더와 이어져 보인다."""
     try:
         handle = wintypes.HWND(window.GetHandle())
         value = ctypes.c_int(1 if theme['titlebar_dark'] else 0)
@@ -133,6 +118,7 @@ def apply_titlebar_theme(window, theme):
             ctypes.windll.dwmapi.DwmSetWindowAttribute(
                 handle, attribute, ctypes.byref(value), ctypes.sizeof(value))
 
+        # DWM paints the 7px top resize band with the caption colour
         value = ctypes.c_int(get_colour_ref(theme['bg']))
         for attribute in (DWMWA_CAPTION_COLOR, DWMWA_BORDER_COLOR):
             ctypes.windll.dwmapi.DwmSetWindowAttribute(
@@ -140,6 +126,7 @@ def apply_titlebar_theme(window, theme):
     except Exception:
         return
 
+    # a visible window only repaints its frame after a resize
     if window.IsShown():
         width, height = window.GetSize()
         window.SetSize(width, height + 1)
@@ -147,10 +134,7 @@ def apply_titlebar_theme(window, theme):
 
 
 def apply_no_caption(window):
-    """wxCAPTION 을 뺀 스타일로 만들어도 wxWidgets 3.3 부터는 WS_CAPTION 이 그대로
-    붙는다(3.2 까지는 빠졌다). 시스템 캡션이 우리가 그리는 헤더 위에 한 줄 더 얹히고,
-    두꺼워진 띠를 헤더가 제 높이로 착각해 글리프가 위로 잘린다. 떼고 나면 남는 것은
-    위쪽 7px 짜리 크기 조절 띠뿐이다."""
+    # wxWidgets 3.3 keeps WS_CAPTION even when wx.CAPTION is left out
     try:
         handle = wintypes.HWND(window.GetHandle())
         style = ctypes.windll.user32.GetWindowLongW(handle, GWL_STYLE)
@@ -163,9 +147,7 @@ def apply_no_caption(window):
 
 
 def apply_clip_siblings(window):
-    """wx 는 자식 창에 WS_CLIPSIBLINGS 를 주지 않는다. 그대로 두면 아래에 깔린
-    형제가 다시 칠할 때마다 그 위에 띄운 창을 덮어 지운다. 이 스타일은 자손이
-    그릴 때까지 함께 따라가므로 덮는 쪽의 뿌리 한 곳에만 주면 된다."""
+    # wx never gives child windows WS_CLIPSIBLINGS, so a lower sibling paints over us
     try:
         handle = wintypes.HWND(window.GetHandle())
         style = ctypes.windll.user32.GetWindowLongW(handle, GWL_STYLE)
@@ -175,9 +157,6 @@ def apply_clip_siblings(window):
 
 
 def get_frame_margins(window):
-    """창 사각형과 실제로 보이는 사각형의 차. 캡션을 뗀 창에도 좌·우·아래에는
-    보이지 않는 크기 조절 여백이 남아, 최대화 자리를 잡을 때 그만큼 넓혀야
-    보이는 가장자리가 작업 영역과 맞는다."""
     rect = WindowRect()
     try:
         if ctypes.windll.dwmapi.DwmGetWindowAttribute(
@@ -193,7 +172,6 @@ def get_frame_margins(window):
 
 
 def is_windows_dark():
-    '''Windows 앱 테마. 못 읽으면 어둡다고 본다 (이 앱의 기본값).'''
     try:
         key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
                              r'Software\Microsoft\Windows\CurrentVersion\Themes\Personalize')
@@ -246,8 +224,6 @@ def format_timer(seconds):
 
 
 def mix(colour, other, ratio):
-    '''두 테마색 사이를 오간다. 밝기를 곱하는 shade 와 달리 어느 테마에서나
-    같은 방향으로 움직여, 흰 바탕에서도 눈에 남는다.'''
     first, second = wx.Colour(colour), wx.Colour(other)
     return wx.Colour(*[round(a + (b - a) * ratio) for a, b in
                        ((first.Red(), second.Red()),
@@ -263,9 +239,7 @@ def shade(colour, factor):
 
 
 def draw_card_rim(gc, colour, x, y, width, height, radius=CARD_RADIUS):
-    '''카드 테두리. `gc` 의 펜으로 두르면 왼쪽과 위만 두 픽셀에 반씩 걸쳐
-    오른쪽·아래보다 굵어 보인다. 바깥 모서리와 1px 안쪽 모서리 사이만 채워
-    네 변을 같은 굵기로 세운다 — 겹치는 안쪽은 짝수라 비고 테두리만 남는다.'''
+    # a 1px pen renders 2px on the left and top, fill the ring between two outlines instead
     path = gc.CreatePath()
     path.AddRoundedRectangle(x, y, width, height, radius)
     path.AddRoundedRectangle(x + 1, y + 1, width - 2, height - 2, max(0, radius - 1))
@@ -278,8 +252,7 @@ FONTS = {}
 
 
 def get_font(size, bold=False):
-    '''반 포인트 단위로 고른다. wxPython 4.3 의 wx.Font 생성자는 실수 크기를 거절해
-    FontInfo 로 만든다.'''
+    # wx.Font in wxPython 4.3 rejects float sizes, FontInfo takes them
     key = (size, bold)
     if key not in FONTS:
         info = wx.FontInfo(size).FaceName('Segoe UI')
@@ -291,14 +264,13 @@ INKS = {}
 WIDTHS = {}
 
 
-def get_luma(image, x, y):
-    '''세 채널 평균. 글씨는 ClearType 이라 채널마다 1/3 칸씩 어긋나 한 채널만 보면 한쪽으로 쏠려 잰다.'''
-    return (image.GetRed(x, y) + image.GetGreen(x, y) + image.GetBlue(x, y)) / 3.0
+def get_luma(data, offset):
+    # ClearType shifts each channel by a third of a pixel, so average all three
+    return (data[offset] + data[offset + 1] + data[offset + 2]) / 3.0
 
 
 def get_ink(font):
-    '''이 글꼴로 y=0 에 쓴 대문자 H 의 잉크 맨 윗줄과 맨 아랫줄(=기준선). 글자 상자는 위 여유와
-    아래 내림 자리를 품어 상자로 가운데를 잡으면 글씨가 위아래로 치우친다. 잉크로 잡는다.'''
+    # the text box carries ascent and descent padding, so centre on the ink of 'H'
     key = font.GetNativeFontInfoDesc()
     if key not in INKS:
         bitmap = wx.Bitmap(80, 80, 24)
@@ -310,14 +282,15 @@ def get_ink(font):
         gc.DrawText('H', 4, 0)
         del gc
         dc.SelectObject(wx.NullBitmap)
-        image = bitmap.ConvertToImage()
-        rows = [y for y in range(80) if any(get_luma(image, x, y) > 127 for x in range(80))]
+        data = bitmap.ConvertToImage().GetData()
+        rows = [y for y in range(80)
+                if any(get_luma(data, (y * 80 + x) * 3) > 127 for x in range(80))]
         INKS[key] = (rows[0], rows[-1]) if rows else (0, 0)
     return INKS[key]
 
 
 def get_text_width(font, text):
-    '''그리는 것과 같은 GraphicsContext 로 잰 폭. DC 로 재면 1 px 어긋난다.'''
+    # a DC measures 1px off from the GraphicsContext that draws
     key = (font.GetNativeFontInfoDesc(), text)
     if key not in WIDTHS:
         dc = wx.MemoryDC(wx.Bitmap(1, 1))
@@ -333,9 +306,7 @@ SPANS = {}
 
 
 def get_ink_span(font, text, colour='#ffffff', back='#000000'):
-    '''x=0 에 쓴 글씨의 잉크 왼쪽·오른쪽 끝. GDI+ 가 재 주는 글자 폭은 오른쪽에 여유를 더 얹어
-    폭으로 가운데를 잡으면 글씨가 왼쪽으로 2~3 px 치우친다(실측). 가로 가운데는 잉크로 잡는다.
-    ClearType 은 글씨·바탕 색에 따라 테두리가 달리 번져 실제 두 색으로 잰다.'''
+    # GDI+ extents pad the right side by 2-3px and ClearType fringes depend on both colours
     key = (font.GetNativeFontInfoDesc(), text, colour, back)
     if key not in SPANS:
         width = get_text_width(font, text) + 40
@@ -349,25 +320,29 @@ def get_ink_span(font, text, colour='#ffffff', back='#000000'):
         gc.DrawText(text, 20, 10)
         del gc
         dc.SelectObject(wx.NullBitmap)
-        image = bitmap.ConvertToImage()
+        data = bitmap.ConvertToImage().GetData()
         base = (ground.Red() + ground.Green() + ground.Blue()) / 3.0
         limit = abs((fore.Red() + fore.Green() + fore.Blue()) / 3.0 - base) / 2.0
-        columns = [x for x in range(width)
-                   if any(abs(get_luma(image, x, y) - base) > limit for y in range(60))]
-        SPANS[key] = (columns[0] - 20, columns[-1] - 20) if columns else (0, 0)
+
+        def is_inked(x):
+            return any(abs(get_luma(data, (y * width + x) * 3) - base) > limit
+                       for y in range(60))
+
+        left = next((x for x in range(width) if is_inked(x)), None)
+        if left is None:
+            SPANS[key] = (0, 0)
+        else:
+            right = next(x for x in range(width - 1, left - 1, -1) if is_inked(x))
+            SPANS[key] = (left - 20, right - 20)
     return SPANS[key]
 
 
 def get_text_top(font, top, height):
-    '''top..top+height 칸의 세로 가운데에 대문자 잉크가 오게 하는 DrawText 의 y. 정수로 —
-    반 칸에 걸리면 글씨가 번진다.'''
     ink_top, ink_bottom = get_ink(font)
     return int(round(top + (height - (ink_bottom - ink_top + 1)) / 2.0 - ink_top))
 
 
 def draw_text_in(gc, text, rect, font, colour, align='center', back=None):
-    '''rect 안에 글씨를 놓는다. 세로는 잉크 가운데, 가로는 가운데·왼쪽·오른쪽. back 은 글씨 뒤
-    바탕색 (잉크를 그 색 위에서 잰다).'''
     gc.SetFont(font, wx.Colour(colour))
     width = get_text_width(font, text)
     if back is None:
@@ -400,22 +375,27 @@ class Canvas(wx.Panel):
 
     def on_paint(self, event):
         dc = wx.AutoBufferedPaintDC(self)
-        dc.SetBackground(wx.Brush(wx.Colour(self.theme['bg'])))
-        dc.Clear()
+        width, height = self.GetClientSize()
+        background = self.get_background(width, height)
+        if background is None:
+            dc.SetBackground(wx.Brush(wx.Colour(self.theme['bg'])))
+            dc.Clear()
+        else:
+            # a GDI blit, GraphicsContext.DrawBitmap converts the pixels on every paint
+            dc.DrawBitmap(background, 0, 0)
         gc = wx.GraphicsContext.Create(dc)
         if gc is None:
             return
         gc.SetAntialiasMode(wx.ANTIALIAS_DEFAULT)
-        width, height = self.GetClientSize()
         self.draw(gc, width, height)
+
+    def get_background(self, width, height):
+        return None
 
     def draw(self, gc, width, height):
         pass
 
     def draw_backdrop(self, gc):
-        '''반투명하게 비치거나 부모 그림 위에 떠 있으려면 뒤가 있어야 한다.
-        자기 자리에 해당하는 부모 그림을 그대로 떠 온다. 부모는 자식 창을
-        그리지 않으므로 되돌아오지 않는다.'''
         parent = self.GetParent()
         if not isinstance(parent, Canvas):
             return
@@ -427,9 +407,7 @@ class Canvas(wx.Panel):
         gc.PopState()
 
     def fit_text(self, gc, text, limit):
-        '''주어진 폭을 넘으면 말줄임으로 자른다. gc.Clip 은 쓰지 않는다. 배경을
-        뜨느라 남의 그리기를 다시 부르는 자리가 있어, 그 안의 ResetClip 이
-        바깥 클립까지 지워 버리기 때문이다.'''
+        # no gc.Clip, a backdrop redraw would ResetClip the caller's clip too
         if gc.GetTextExtent(text)[0] <= limit:
             return text
         while text and gc.GetTextExtent(text + '…')[0] > limit:
@@ -444,10 +422,7 @@ class Canvas(wx.Panel):
 
 
 class TimerCanvas(Canvas):
-    '''Stopwatch 와 Countdown 이 같은 폰트·배치로 시간을 그리도록 공유하는 베이스.
-    00:00:00.00 을 한 줄로 그린다. 1/100 초도 크기와 색이 시·분·초와 같다.'''
 
-    # 큰 숫자의 크기를 정하는 가로 폭 나눗수. 키우면 글자가 작아진다.
     WIDTH_DIVISOR = 13
 
     def __init__(self, parent, theme):
@@ -462,7 +437,6 @@ class TimerCanvas(Canvas):
                            MAX_TIME_SIZE))
 
     def get_time_height(self, width, height):
-        '''그려질 시간 글자의 높이. 캔버스를 글자에 맞춰 재울 때 쓴다.'''
         dc = wx.MemoryDC(wx.Bitmap(1, 1))
         dc.SetFont(get_font(self.get_time_size(width, height), bold=True))
         return dc.GetTextExtent(format_hms(0))[1]
@@ -471,14 +445,11 @@ class TimerCanvas(Canvas):
         self.draw_time(gc, width, height)
 
     def draw_time(self, gc, width, height, offset=0):
-        '''시·분·초와 1/100 초는 글꼴도 색도 같다. 나눠 그릴 것 없이 한 줄이다.'''
         text = format_timer(self.seconds)
         gc.SetFont(get_font(self.get_time_size(width, height), bold=True),
                    wx.Colour(self.get_time_colour()))
         text_width, text_height = gc.GetTextExtent(text)[:2]
 
-        # offset 은 시간 아래에 무언가를 더 쌓을 때 그만큼 위로 밀어, 쌓은
-        # 덩어리 전체가 가운데에 오게 하려고 둔다.
         top = height / 2 - text_height / 2 + offset
         gc.DrawText(text, (width - text_width) / 2, top)
         return top + text_height

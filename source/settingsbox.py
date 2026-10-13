@@ -4,20 +4,15 @@
 '''
 author: Taehong Kim
 email: peppy0510@hotmail.com
-
-탭 바에 노출되지 않는 페이지. 설정 아이콘으로만 들어온다.
-Windows 11 설정처럼 그룹 제목 아래 카드를 쌓는다. 창이 낮으면 굴린다.
 '''
 
 
-import makeshortcut
 import wx
 
 from controls import ButtonCard
 from controls import ChoiceCard
 from controls import ScrollArea
 from controls import SettingCard
-from shortcut import ShortCut
 from utilities import APP_NAME
 from utilities import get_font
 
@@ -29,7 +24,7 @@ THEMES = (('auto', 'Auto'), ('light', 'Light'), ('dark', 'Dark'))
 SHORTCUT_NOTE = 'Put a shortcut in the Start menu'
 
 MARGIN = 16
-# 카드 테두리는 선이지만 제목은 글자라, 같은 여백이면 제목이 왼쪽으로 삐져나와 보인다.
+# text aligned to a card's rim line looks outdented
 TITLE_INSET = 3
 TITLE_GAP = 8
 CARD_GAP = 4
@@ -84,12 +79,14 @@ class SettingsBox(ScrollArea):
                     sizer.AddSpacer(CARD_GAP)
                 sizer.Add(card, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, MARGIN)
             sizer.AddSpacer(GROUP_GAP)
-        # 내용판을 통째로 위아래로 옮겨 굴린다 (ScrollArea). 키는 사이저가 정한다.
         board.SetSizer(sizer)
         self.bind_children()
         self.apply_theme(theme)
 
     def on_shortcut(self):
+        # win32com costs about 7 MB, load it only when asked
+        import makeshortcut
+        from shortcut import ShortCut
         try:
             makeshortcut.create(ShortCut.get_user_startmenu_path(APP_NAME))
         except Exception:

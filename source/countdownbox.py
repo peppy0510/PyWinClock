@@ -17,31 +17,20 @@ from utilities import TimerCanvas
 from utilities import get_font
 
 
-# 입력창 양옆 버튼이 한 번에 옮기는 시간.
 STEP_SECONDS = 60
-# 99:59:59. 입력칸이 여덟 자리라 이보다 큰 값은 들어올 자리가 없다.
+# 99:59:59
 MAX_SECONDS = 359999
 FIELD_CHARS = '0123456789:'
 BLINK_INTERVAL = 0.5
 WARN_SECONDS = 10
 BUTTON_GAP = 10
-# 고리 반지름은 가로 폭만 보고 정한다. 세로까지 보면 '높이 -> 반지름 -> 높이'
-# 순환이 생겨 특정 창 크기에서 값이 수렴하지 않는다. 세로는 넘칠 때만 깎는다.
+# radius from the width only, height -> radius -> height never settles
 RING_RATIO = 0.38
-# 고리 획 두께가 반지름 밖으로 반씩 나가므로 캔버스 높이에 그만큼 더 준다.
 RING_PAD = 10
-# 고리도 시계 문자판과 같은 크기에서 멈춘다. 캔버스를 고리에 딱 맞춰 두므로
-# 여기만 막으면 남는 세로는 위아래 스트레치 스페이서가 알아서 여백으로 가른다.
 MAX_RADIUS = (MAX_DIAL - RING_PAD) / 2
-# 고리 캔버스가 제 둘레에 두는 여백.
 CANVAS_MARGIN = 8
-# 시간과 그 아래 입력칸 사이.
 FIELD_GAP = 8
-# 고리와 버튼 줄 사이. 고리는 아래로 둥글게 물러나므로 같은 값을 줘도 곧은
-# 글자 밑동보다 더 붙어 보인다. 그만큼 한 뼘 더 둔다.
 BUTTON_TOP_GAP = 14
-# 창이 낮아 자리를 다 써야 할 때도 위아래로 남겨 두는 여백. 이게 없으면
-# 버튼이 창 밑동에 딱 붙는다.
 EDGE_GAP = 14
 
 
@@ -50,9 +39,6 @@ def format_duration(seconds):
 
 
 def parse_duration(text):
-    '''적힌 만큼만 읽는다. 한 토막이면 초, 두 토막이면 분·초, 세 토막이면
-    시·분·초다. 빈 토막은 0 으로 본다. `90` 도 `1:90` 도 받아 뒤에서 자리를
-    옮겨 준다.'''
     parts = text.strip().split(':')
     if not parts or len(parts) > 3:
         return None
@@ -74,12 +60,10 @@ class CountdownCanvas(TimerCanvas):
         self.total = 0
         self.finished = False
         self.blink = False
-        # 입력칸을 시간 바로 아래에 얹으려면 그 시간이 어디서 끝나는지 알아야 한다.
-        # 글꼴 크기가 창을 따라 변하므로 그릴 때마다 적어 둔다.
         self.time_bottom = None
-        # 시간 아래에 쌓이는 입력칸·버튼의 높이. 절반만큼 시간을 위로 밀어야
-        # 쌓은 덩어리 전체가 고리 가운데에 온다.
         self.stack_space = 0
+        self.ring_key = None
+        self.ring_bitmap = None
 
     def get_time_colour(self):
         if self.finished:
@@ -90,13 +74,34 @@ class CountdownCanvas(TimerCanvas):
         return min(width * RING_RATIO, height / 2 - RING_PAD / 2, MAX_RADIUS)
 
     def get_time_size(self, width, height):
-        '''글자는 고리 안에 들어가야 한다. 상자만 보고 잡으면 **창이 가로로 길
-        때** 고리는 세로에 갇히는데 글자만 폭을 따라 커져 고리 밖으로 삐져나온다.
-        고리가 폭을 다 쓰던 때의 비율(반지름 = 폭 x RING_RATIO, 글자 = 폭 /
-        WIDTH_DIVISOR)을 그대로 반지름에 적용하면, 어느 쪽이 고리를 정하든
-        글자와 고리의 크기 비가 늘 같다.'''
+        # scale from the ring so the text stays inside it when the window is wide
         return max(14, int(self.get_radius(width, height) /
                            (RING_RATIO * self.WIDTH_DIVISOR)))
+
+    def set_theme(self, theme):
+        self.ring_key = None
+        super().set_theme(theme)
+
+    def get_background(self, width, height):
+        radius = self.get_radius(width, height)
+        if radius < 24 or width <= 0 or height <= 0:
+            return None
+        if (width, height) != self.ring_key:
+            bitmap = wx.Bitmap(width, height, 24)
+            dc = wx.MemoryDC(bitmap)
+            dc.SetBackground(wx.Brush(wx.Colour(self.theme['bg'])))
+            dc.Clear()
+            gc = wx.GraphicsContext.Create(dc)
+            gc.SetAntialiasMode(wx.ANTIALIAS_DEFAULT)
+            gc.SetBrush(wx.TRANSPARENT_BRUSH)
+            gc.SetPen(wx.Pen(wx.Colour(self.theme['rim']), 7))
+            path = gc.CreatePath()
+            path.AddArc(width / 2, height / 2, radius, 0, 6.2831853, True)
+            gc.StrokePath(path)
+            del gc
+            dc.SelectObject(wx.NullBitmap)
+            self.ring_key, self.ring_bitmap = (width, height), bitmap
+        return self.ring_bitmap
 
     def draw(self, gc, width, height):
         theme = self.theme
@@ -104,12 +109,6 @@ class CountdownCanvas(TimerCanvas):
         radius = self.get_radius(width, height)
         if radius < 24:
             return
-
-        gc.SetBrush(wx.TRANSPARENT_BRUSH)
-        gc.SetPen(wx.Pen(wx.Colour(theme['rim']), 7))
-        path = gc.CreatePath()
-        path.AddArc(cx, cy, radius, 0, 6.2831853, True)
-        gc.StrokePath(path)
 
         fraction = self.seconds / self.total if self.total > 0 else 0
         if fraction > 0:
@@ -131,9 +130,6 @@ class CountdownCanvas(TimerCanvas):
 
 
 class FieldBox(Canvas):
-    '''둥근 판 하나에 시간 입력칸과 좌우 증감 버튼을 함께 담는다. 네이티브
-    TextCtrl 은 모서리를 굴릴 수 없어, 판은 캔버스로 그리고 입력칸은 그 안쪽
-    가운데에 앉힌다. 버튼은 판이 비쳐야 하므로 채움 없는 ghost 로 둔다.'''
 
     WIDTH = 148
     HEIGHT = 34
@@ -152,12 +148,11 @@ class FieldBox(Canvas):
         self.field.Bind(wx.EVT_CHAR, self.on_char)
         self.buttons = (self.minus, self.plus)
         self.SetMinSize(wx.Size(self.WIDTH, self.HEIGHT))
-        # 첫 그림이 끝나야 얹힐 자리를 알 수 있다. 그때까지 구석에 비치지 않게 숨긴다.
+        # hidden until the first paint tells where the time text ends
         self.Hide()
         self.Bind(wx.EVT_SIZE, self.on_size)
 
     def on_char(self, event):
-        '''숫자와 자리 구분 콜론만 받는다. 지우기·이동 키와 단축키는 그대로 흘린다.'''
         code = event.GetKeyCode()
         if code >= wx.WXK_START or code < 32 or code == wx.WXK_DELETE:
             event.Skip()
@@ -171,8 +166,7 @@ class FieldBox(Canvas):
         size = height - self.PADDING * 2
         self.minus.SetSize(self.PADDING, self.PADDING, size, size)
         self.plus.SetSize(width - self.PADDING - size, self.PADDING, size, size)
-        # 단일 라인 TextCtrl 은 높이를 키우면 글자가 위로 붙는다. 제 높이 그대로 두고
-        # 두 버튼 사이 가운데에 앉힌다.
+        # a taller single-line TextCtrl pins its text to the top, keep its own height
         left = self.PADDING + size
         text_height = self.field.GetBestSize()[1]
         self.field.SetSize(left, (height - text_height) // 2,
@@ -204,16 +198,14 @@ class CountdownBox(wx.Panel):
         self.finished_at = 0.0
 
         self.canvas = CountdownCanvas(self, theme)
-        # 사이저에 담지 않고 시간 바로 아래에 얹는다. 캔버스의 자식이라야
-        # 고리를 다시 칠할 때 덧칠해 지워지지 않는다.
+        # a child of the canvas, as a sibling the ring repaint would cover it
         self.fieldbox = FieldBox(self.canvas, theme, self.make_step)
         self.canvas.stack_space = FIELD_GAP + FieldBox.HEIGHT
         self.field = self.fieldbox.field
         self.field.Bind(wx.EVT_TEXT, lambda event: self.on_field())
         self.field.Bind(wx.EVT_TEXT_ENTER, lambda event: self.drop_focus())
         self.field.Bind(wx.EVT_KILL_FOCUS, self.on_field_done)
-        # 입력칸 밖 아무 데나 누르면 손을 뗀다. 빈 바탕을 눌러도 wx 가 포커스를
-        # 첫 입력칸으로 돌려주므로 페이지 자신에도 걸어 둔다.
+        # wx hands focus back to the first field when the empty page is clicked
         self.canvas.Bind(wx.EVT_LEFT_DOWN, lambda event: self.drop_focus())
         self.Bind(wx.EVT_LEFT_DOWN, lambda event: self.drop_focus())
 
@@ -227,10 +219,6 @@ class CountdownBox(wx.Panel):
         control_row.Add(self.reset_button, 0, wx.LEFT | wx.RIGHT, BUTTON_GAP)
         control_row.AddStretchSpacer()
 
-        # 캔버스를 고리 높이에 딱 맞춰 둔다. 캔버스가 늘어나면 고리 아래에
-        # 보이지 않는 여백이 생겨, 눈에는 버튼 위쪽만 넓어 보인다. 고리와 버튼
-        # 줄 사이는 창 크기와 상관없이 고정하고, 남는 세로는 덩어리 위아래로
-        # 똑같이 나눈다.
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.AddStretchSpacer()
         sizer.Add(self.canvas, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, CANVAS_MARGIN)
@@ -245,28 +233,16 @@ class CountdownBox(wx.Panel):
         self.on_field()
 
     def drop_focus(self):
-        '''입력칸에서 손을 뗀다. 포커스가 남아 있으면 깜빡이는 커서가 계속 보인다.
-        패널 자신이 받아야 포커스가 다시 자식 입력칸으로 흘러가지 않는다.'''
         self.SetFocusIgnoringChildren()
 
     def on_show(self, event):
-        # 페이지가 뜨면 wx 가 첫 입력칸에 포커스를 준다. 누르지도 않았는데
-        # 커서가 깜빡이므로 곧바로 되돌린다.
+        # wx focuses the first field whenever the page is shown
         if event.IsShown():
             wx.CallAfter(self.drop_focus)
         event.Skip()
 
     def on_size(self, event):
-        '''고리는 가로 폭이 정하므로 캔버스 높이도 거기서 나온다. 다만 그
-        높이를 그대로 요구하면 **창이 가로로 길 때 캔버스가 세로를 다 먹어
-        버튼 줄이 화면 밖으로 밀려난다.** 버튼 줄과 가장자리 여백이 쓸 자리를
-        먼저 떼어 두고 남는 만큼만 준다. 페이지 높이는 창이 정하는 값이라
-        여기에 되먹임 고리는 생기지 않는다.
-
-        ★버튼 높이는 반드시 `GetMinSize`. 자리가 모자라면 사이저가 버튼을
-        최소 크기 아래로 찌그러뜨리는데, 그 찌그러진 `GetSize` 를 보고 자리를
-        다시 나누면 캔버스가 더 커지고 버튼은 더 찌그러진다 — 되먹임으로
-        버튼이 순식간에 몇 픽셀까지 작아진다.'''
+        # GetMinSize, not GetSize: a squeezed button would shrink itself further on every pass
         width, height = self.GetClientSize()
         if width <= 0:
             return event.Skip()
@@ -291,9 +267,9 @@ class CountdownBox(wx.Panel):
 
     def make_step(self, delta):
         def apply():
-            # 먼저 멈춰야 on_field 가 값을 다시 읽는다. 0 아래로는 내려가지 않는다.
             seconds = min(MAX_SECONDS,
                           max(0, (parse_duration(self.field.GetValue()) or 0) + delta))
+            # stop first, on_field ignores the field while running
             self.stop()
             self.field.SetValue(format_duration(seconds))
             self.drop_focus()
@@ -313,11 +289,9 @@ class CountdownBox(wx.Panel):
         self.tick()
 
     def on_field_done(self, event):
-        '''손을 떼는 순간 적힌 것을 해석해 00:00:00 꼴로 다시 적는다.
-        `90` 은 1 분 30 초로, `0:0` 은 0 으로 자리를 옮겨 준다.'''
         text = format_duration(parse_duration(self.field.GetValue()) or 0)
         if text != self.field.GetValue():
-            # ChangeValue 는 EVT_TEXT 를 다시 일으키지 않으므로 직접 알린다.
+            # ChangeValue sends no EVT_TEXT
             self.field.ChangeValue(text)
             self.on_field()
         event.Skip()
@@ -345,14 +319,11 @@ class CountdownBox(wx.Panel):
         self.on_field()
 
     def place_field(self):
-        '''시간 글자 바로 아래, 가로 가운데. 글꼴이 창을 따라 커지므로
-        지난 그림이 적어 둔 시간의 끝자리를 보고 따라간다.'''
         bottom = self.canvas.time_bottom
         if bottom is None:
             return
         width = self.canvas.GetClientSize()[0]
         size = self.fieldbox.GetMinSize()
-        # 사이저 밖이라 자리와 크기를 직접 준다. 첫 그림 전에는 숨겨 두었다.
         rect = wx.Rect((width - size[0]) // 2, int(bottom) + FIELD_GAP, *size)
         if rect != self.fieldbox.GetRect():
             self.fieldbox.SetSize(rect)
@@ -368,11 +339,26 @@ class CountdownBox(wx.Panel):
                 self.start_button.set_icon('play')
                 wx.Bell()
 
-        self.canvas.total = self.total
-        self.canvas.seconds = self.remaining
-        self.canvas.finished = bool(self.finished_at)
+        canvas = self.canvas
+        blink = canvas.blink
         if self.finished_at:
             elapsed = time.perf_counter() - self.finished_at
-            self.canvas.blink = int(elapsed / BLINK_INTERVAL) % 2 == 0
+            blink = int(elapsed / BLINK_INTERVAL) % 2 == 0
+        state = (self.total, self.remaining, bool(self.finished_at), blink)
         self.place_field()
-        self.canvas.Refresh()
+        if state != (canvas.total, canvas.seconds, canvas.finished, canvas.blink):
+            canvas.total, canvas.seconds, canvas.finished, canvas.blink = state
+            self.refresh_canvas()
+
+    def refresh_canvas(self):
+        # leave the field box out, repainting its native TextCtrl costs more than the ring
+        if not self.fieldbox.IsShown():
+            self.canvas.Refresh()
+            return
+        width, height = self.canvas.GetClientSize()
+        box = self.fieldbox.GetRect()
+        right, bottom = box.x + box.width, box.y + box.height
+        self.canvas.RefreshRect(wx.Rect(0, 0, width, box.y))
+        self.canvas.RefreshRect(wx.Rect(0, bottom, width, height - bottom))
+        self.canvas.RefreshRect(wx.Rect(0, box.y, box.x, box.height))
+        self.canvas.RefreshRect(wx.Rect(right, box.y, width - right, box.height))

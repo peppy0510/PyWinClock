@@ -19,26 +19,19 @@ from utilities import get_font
 
 
 BUTTON_GAP = 10
-# 캔버스와 랩 표가 창 가장자리에 두는 여백.
 MARGIN = 8
-# 버튼 줄 위아래로 똑같이 두는 자리.
 ROW_GAP = 16
-# 랩 표는 창 폭을 다 쓰지 않고 이만큼만 차지한 채 가운데에 선다.
 TABLE_WIDTH = 300
 
 
 class StopwatchCanvas(TimerCanvas):
-    '''캔버스를 글자 높이에 맞춰 재우므로 글꼴은 가로 폭만 보고 정한다.
-    세로까지 보면 '높이 -> 글꼴 -> 높이' 순환이 생겨 값이 수렴하지 않는다.
-    상한은 카운트다운과 같다 — 고리가 없을 뿐 같은 크기의 시계로 보여야 한다.'''
 
     def get_time_size(self, width, height):
+        # width only, the canvas height follows the text and would never settle
         return max(14, min(int(width / self.WIDTH_DIVISOR), MAX_TIME_SIZE))
 
 
 class LapList(Canvas):
-    '''Laps / Time / Total 세 열의 랩 표. wx.ListCtrl 은 Windows 에서
-    배경색을 안 따르므로 여기서도 직접 그린다.'''
 
     HEADER_HEIGHT = 28
     ROW_HEIGHT = 24
@@ -59,7 +52,6 @@ class LapList(Canvas):
     def set_totals(self, totals):
         splits = [total - (totals[index - 1] if index else 0)
                   for index, total in enumerate(totals)]
-        # 랩이 하나뿐이거나 전부 같으면 최고·최저를 나눌 의미가 없다.
         fastest = splits.index(min(splits)) if splits else -1
         slowest = splits.index(max(splits)) if splits else -1
         if fastest == slowest:
@@ -89,8 +81,6 @@ class LapList(Canvas):
             self.Refresh()
 
     def get_columns(self, width):
-        # 숫자 열은 오른쪽에 맞춘다. 마지막 열의 오른쪽 끝이 왼쪽 첫 열과 같은
-        # 만큼 안으로 들어와야 한 줄의 좌우 여백이 같아 보인다.
         return (self.PADDING, self.PADDING + self.TAG_OFFSET,
                 self.PADDING + (width - self.PADDING * 2) * 0.62,
                 width - self.PADDING)
@@ -154,8 +144,6 @@ class StopwatchBox(wx.Panel):
             row.Add(button, 0, wx.LEFT | wx.RIGHT, BUTTON_GAP)
         row.AddStretchSpacer()
 
-        # 캔버스를 글자 높이에 딱 맞춰 두어야 버튼 줄의 위 여백이 안 보이는
-        # 빈자리까지 껴안지 않는다. 남는 세로는 위쪽과 랩 표가 나눠 갖는다.
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.AddStretchSpacer()
         sizer.Add(self.canvas, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, MARGIN)
@@ -218,5 +206,7 @@ class StopwatchBox(wx.Panel):
         self.tick()
 
     def tick(self):
-        self.canvas.seconds = self.get_elapsed()
-        self.canvas.Refresh()
+        seconds = self.get_elapsed()
+        if seconds != self.canvas.seconds:
+            self.canvas.seconds = seconds
+            self.canvas.Refresh()

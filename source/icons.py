@@ -4,11 +4,6 @@
 '''
 author: Taehong Kim
 email: peppy0510@hotmail.com
-
-타이틀바와 사이드 메뉴가 쓰는 선 아이콘. 모두 size 를 한 변으로 하는
-정사각형 안에 (cx, cy) 를 가운데 두고 그린다.
-
-RoundButton 의 아이콘은 채운 도형이라 성격이 달라 그쪽에 그대로 둔다.
 '''
 
 
@@ -42,7 +37,7 @@ def draw_globe(gc, cx, cy, size, colour, width):
     radius = size * 0.44
     gc.DrawEllipse(cx - radius, cy - radius, radius * 2, radius * 2)
     gc.StrokeLine(cx - radius, cy, cx + radius, cy)
-    # 자오선 하나면 구로 읽힌다. 둘 이상은 이 크기에서 뭉개진다.
+    # one meridian, two blur at this size
     gc.DrawEllipse(cx - radius * 0.46, cy - radius, radius * 0.92, radius * 2)
 
 
@@ -58,7 +53,6 @@ def draw_stopwatch(gc, cx, cy, size, colour, width):
 def draw_countdown(gc, cx, cy, size, colour, width):
     radius = size * 0.44
     gc.DrawEllipse(cx - radius, cy - radius, radius * 2, radius * 2)
-    # 12 시부터 3 시까지 채워 남은 시간처럼 보이게 한다.
     path = gc.CreatePath()
     path.MoveToPoint(cx, cy)
     path.AddLineToPoint(cx, cy - radius)
@@ -70,8 +64,7 @@ def draw_countdown(gc, cx, cy, size, colour, width):
 
 
 def draw_settings(gc, cx, cy, size, colour, width):
-    '''원에서 뻗는 살로 그리면 이 크기에서는 톱니바퀴가 아니라 해로 읽힌다.
-    바깥선을 톱니 모양 그대로 두르고 가운데 축만 남긴다.'''
+    # a toothed outline, radial spokes read as a sun at this size
     outer, inner, hub = size * 0.48, size * 0.33, size * 0.15
     steps = 16
 
@@ -106,7 +99,6 @@ def draw_maximize(gc, cx, cy, size, colour, width):
 
 def draw_restore(gc, cx, cy, size, colour, width):
     gc.DrawRectangle(cx - size * 0.38, cy - size * 0.22, size * 0.60, size * 0.60)
-    # 뒤 사각형은 앞 사각형에 가려지는 두 변을 빼고 ㄱ 자로만 그린다.
     path = gc.CreatePath()
     path.MoveToPoint(cx - size * 0.22, cy - size * 0.22)
     path.AddLineToPoint(cx - size * 0.22, cy - size * 0.38)
@@ -117,8 +109,6 @@ def draw_restore(gc, cx, cy, size, colour, width):
 
 
 def draw_home(gc, cx, cy, size, colour, width):
-    '''지붕과 몸통만 남긴 집. 하는 일이 "여기가 내 도시" 를 정하는 것이라
-    연필보다 이쪽이 바로 읽힌다.'''
     half = size * 0.46
     apex = cy - size * 0.42
     eaves = cy - size * 0.06
