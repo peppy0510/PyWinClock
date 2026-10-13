@@ -33,9 +33,12 @@ class ClockCanvas(Canvas):
     smooth = True
     face_key = None
     face_bitmap = None
+    drawn_tip = None
 
     NUMERAL_RATIO = 0.125
     RIM_WIDTH = 2
+    SECOND_LENGTH = 0.84
+    MINIMAL_SECOND_LENGTH = 0.70
 
     TICK_OUTER = 0.97
     TICK_INNER = 0.90
@@ -61,6 +64,21 @@ class ClockCanvas(Canvas):
         minutes = now.minute + seconds / 60
         hours = now.hour % 12 + minutes / 60
         return hours / 12, minutes / 60, seconds / 60
+
+    def get_second_tip(self, face):
+        if self.preset == 'minimal':
+            length = face * self.MINIMAL_SECOND_LENGTH
+        else:
+            length = (face - self.RIM_WIDTH / 2) * self.SECOND_LENGTH
+        angle = math.radians(self.get_fractions()[2] * 360)
+        return (length * math.sin(angle), length * math.cos(angle))
+
+    def is_tip_moved(self):
+        if self.drawn_tip is None:
+            return True
+        width, height = self.GetClientSize()
+        x, y = self.get_second_tip(self.radius or min(width, height) / 2)
+        return math.hypot(x - self.drawn_tip[0], y - self.drawn_tip[1]) >= 1
 
     def get_background(self, width, height):
         face = self.radius or min(width, height) / 2
@@ -94,6 +112,7 @@ class ClockCanvas(Canvas):
         face = self.radius or min(width, height) / 2
         if not self.has_face(face):
             return
+        self.drawn_tip = self.get_second_tip(face)
         if self.preset == 'minimal':
             self.draw_minimal_hands(gc, cx, cy, face)
         else:
@@ -134,7 +153,7 @@ class ClockCanvas(Canvas):
         hours, minutes, seconds = self.get_fractions()
         self.draw_hand(gc, cx, cy, hours, radius * 0.50, 7, theme['hand'])
         self.draw_hand(gc, cx, cy, minutes, radius * 0.74, 5, theme['hand'])
-        self.draw_hand(gc, cx, cy, seconds, radius * 0.84, 2, theme['second'])
+        self.draw_hand(gc, cx, cy, seconds, radius * self.SECOND_LENGTH, 2, theme['second'])
 
         gc.SetPen(wx.Pen(wx.Colour(theme['face']), 2))
         gc.SetBrush(wx.Brush(wx.Colour(theme['second'])))
@@ -161,7 +180,8 @@ class ClockCanvas(Canvas):
         self.draw_hand(gc, cx, cy, minutes, radius * 0.82,
                        max(2, round(radius * 0.014)), theme['dim'])
         # a 1px diagonal loses half its weight to antialiasing, so it gets the tick colour
-        self.draw_hand(gc, cx, cy, seconds, radius * 0.70, 1, theme['tick_major'])
+        self.draw_hand(gc, cx, cy, seconds, radius * self.MINIMAL_SECOND_LENGTH, 1,
+                       theme['tick_major'])
 
         knob = max(3, round(radius * 0.035))
         gc.SetPen(wx.TRANSPARENT_PEN)
@@ -315,5 +335,5 @@ class ClockBox(wx.Panel):
         self.canvas.now = local
         if changed:
             self.Layout()
-        if changed or self.canvas.smooth:
+        if changed or self.canvas.smooth and self.canvas.is_tip_moved():
             self.canvas.Refresh()
