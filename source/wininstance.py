@@ -7,11 +7,16 @@ email: peppy0510@hotmail.com
 '''
 
 
+import ctypes
 import os
 import psutil
 import sys
 
 from pathlib import Path
+
+
+SW_SHOW = 5
+SW_RESTORE = 9
 
 
 def has_process_authority(p):
@@ -62,3 +67,13 @@ def has_running_instance():
             return True
 
     return False
+
+
+def show_running_window(title):
+    # the running copy may sit hidden in the tray; bring it back instead of doing nothing
+    user32 = ctypes.windll.user32
+    hwnd = user32.FindWindowW('wxWindowNR', title)
+    if not hwnd:
+        return
+    user32.ShowWindow(hwnd, SW_RESTORE if user32.IsIconic(hwnd) else SW_SHOW)
+    user32.SetForegroundWindow(hwnd)

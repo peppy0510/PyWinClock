@@ -42,6 +42,11 @@ class SettingsBox(ScrollArea):
                                   'Show UTC instead of local time', on_change)
         self.ontop = SettingCard(board, theme, 'Always on top',
                                  'Keep the window above others', on_change)
+        self.tray = SettingCard(board, theme, 'Tray icon',
+                                'Show an icon in the notification area', on_change)
+        self.close_to_tray = SettingCard(board, theme, 'Close to tray',
+                                         'Closing hides the window instead of quitting',
+                                         on_change)
         self.autohide = SettingCard(board, theme, 'Auto hide menu',
                                     'Show the header only on hover', on_change)
         self.shortcut = ButtonCard(board, theme, 'Start menu', SHORTCUT_NOTE, 'Create',
@@ -52,12 +57,15 @@ class SettingsBox(ScrollArea):
                                   'Sweep instead of stepping once a second', on_change)
         self.theme_choice = ChoiceCard(board, theme, 'Theme', 'Auto follows Windows',
                                        THEMES, on_change)
-        self.cards = (self.use24h, self.useutc, self.ontop, self.autohide, self.shortcut,
+        self.cards = (self.use24h, self.useutc, self.ontop, self.tray, self.close_to_tray,
+                      self.autohide, self.shortcut,
                       self.preset, self.smooth, self.theme_choice)
 
         self.use24h.SetValue(settings.get('use_24h', True))
         self.useutc.SetValue(settings.get('use_utc', False))
         self.ontop.SetValue(settings.get('on_top', False))
+        self.tray.SetValue(settings.get('tray_icon', True))
+        self.close_to_tray.SetValue(settings.get('close_to_tray', False))
         self.autohide.SetValue(settings.get('auto_hide_menu', True))
         self.preset.SetValue(settings.get('clock_preset', 'classic'))
         self.smooth.SetValue(settings.get('smooth_second', True))
@@ -67,7 +75,8 @@ class SettingsBox(ScrollArea):
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.AddSpacer(MARGIN)
         for title, cards in (('Clock', (self.use24h, self.useutc)),
-                             ('Window', (self.ontop, self.autohide, self.shortcut)),
+                             ('Window', (self.ontop, self.tray, self.close_to_tray,
+                                         self.autohide, self.shortcut)),
                              ('Appearance', (self.preset, self.smooth, self.theme_choice))):
             label = wx.StaticText(board, label=title)
             label.SetFont(get_font(10, bold=True))

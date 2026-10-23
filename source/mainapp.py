@@ -18,6 +18,7 @@ from settingsbox import SettingsBox
 from sidemenu import SideMenu
 from stopwatchbox import StopwatchBox
 from titlebar import TitleBar
+from tray import TrayIcon
 from worldbox import WorldBox
 from utilities import APP_NAME
 from utilities import THEMES
@@ -76,6 +77,8 @@ class MainFrame(wx.Frame):
 
     stored_rect = None
     restore_bounds = None
+    tray = None
+    quitting = False
 
     def __init__(self):
         settings = load_settings()
@@ -220,7 +223,28 @@ class MainFrame(wx.Frame):
         else:
             self.SetWindowStyle(style & ~wx.STAY_ON_TOP)
 
+        if self.settingsbox.tray.GetValue() and self.tray is None:
+            self.tray = TrayIcon(self)
+        elif not self.settingsbox.tray.GetValue() and self.tray is not None:
+            self.remove_tray()
+
         self.update_theme()
+
+    def remove_tray(self):
+        self.tray.RemoveIcon()
+        self.tray.Destroy()
+        self.tray = None
+
+    def quit(self):
+        self.quitting = True
+        self.Close(True)
+
+    def show_window(self):
+        if self.IsIconized():
+            self.Iconize(False)
+        self.Show()
+        self.Raise()
+        self.SetFocus()
 
     @staticmethod
     def resolve_theme(choice):
@@ -266,6 +290,8 @@ class MainFrame(wx.Frame):
             'on_top': self.settingsbox.ontop.GetValue(),
             'use_24h': self.settingsbox.use24h.GetValue(),
             'use_utc': self.settingsbox.useutc.GetValue(),
+            'tray_icon': self.settingsbox.tray.GetValue(),
+            'close_to_tray': self.settingsbox.close_to_tray.GetValue(),
             'auto_hide_menu': self.settingsbox.autohide.GetValue(),
             'clock_preset': self.settingsbox.preset.GetValue(),
             'smooth_second': self.settingsbox.smooth.GetValue(),
@@ -275,6 +301,18 @@ class MainFrame(wx.Frame):
         })
 
     def on_close(self, event):
+        if (self.tray is not None and self.settingsbox.close_to_tray.GetValue()
+                and not self.quitting and event.CanVeto()):
+            event.Veto()
+            if self.restore_bounds is not None:
+                self.stored_rect = list(self.restore_bounds)
+            elif self.IsIconized() is False and self.IsMaximized() is False:
+                self.stored_rect = list(self.GetRect())
+            self.store_settings()
+            # a second launch may have shown the window behind wx's back
+            self.Show(True)
+            self.Hide()
+            return
         self.pacer.running = False
         # close() releases the mouse capture but starts the slide timer, which would
         # fire into the destroyed window (0xc0000374)
@@ -285,6 +323,9 @@ class MainFrame(wx.Frame):
         elif self.IsIconized() is False and self.IsMaximized() is False:
             self.stored_rect = list(self.GetRect())
         self.store_settings()
+        # a live tray icon keeps the app running after the frame is gone
+        if self.tray is not None:
+            self.remove_tray()
         event.Skip()
 
 

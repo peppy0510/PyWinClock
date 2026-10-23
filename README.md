@@ -6,6 +6,7 @@
 * Countdown with a progress ring and a beep at zero.
 * Classic and minimal clock faces, smooth or ticking second hand.
 * Auto, dark and light themes.
+* A tray icon with Close to tray; the clock keeps running while hidden.
 * World map from Natural Earth, public domain.
 
 ## Screenshot
