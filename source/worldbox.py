@@ -41,6 +41,8 @@ ROW_HEIGHT = 52
 ROW_GAP = 0
 ROW_STRIDE = ROW_HEIGHT + ROW_GAP
 MARGIN = 14
+# the map and the list stop growing here and stay centred, as the dial does on the other pages
+COLUMN_WIDTH = 400
 ADD_SIZE = 36
 PHASE_WIDTH = 24
 NAME_GAP = 12
@@ -737,7 +739,6 @@ class WorldBox(wx.Panel):
         self.editing = False
         self.picking_home = False
         self.stamp = None
-        self.map_height = 0
 
         self.book = wx.Simplebook(self)
         self.browse = self.build_browse(theme)
@@ -762,10 +763,18 @@ class WorldBox(wx.Panel):
         self.toolbox = Toolbox(self.map, theme, self.on_edit, self.on_add)
         self.map.Bind(wx.EVT_SIZE, self.on_map_size)
 
+        column = wx.BoxSizer(wx.VERTICAL)
+        column.Add(self.map, 0, wx.EXPAND)
+        column.AddSpacer(MARGIN)
+        column.Add(self.list, 0, wx.EXPAND)
+        row = wx.BoxSizer(wx.HORIZONTAL)
+        row.AddStretchSpacer()
+        row.Add(column)
+        row.AddStretchSpacer()
         sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self.map, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, MARGIN)
-        sizer.AddSpacer(MARGIN)
-        sizer.Add(self.list, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, MARGIN)
+        sizer.AddStretchSpacer()
+        sizer.Add(row, 0, wx.EXPAND | wx.ALL, MARGIN)
+        sizer.AddStretchSpacer()
         panel.SetSizer(sizer)
         return panel
 
@@ -776,9 +785,15 @@ class WorldBox(wx.Panel):
         self.field.Bind(wx.EVT_TEXT, lambda event: self.refresh_picker())
         self.results = CityPicker(panel, theme, self.on_pick)
 
+        column = wx.BoxSizer(wx.VERTICAL)
+        column.Add(self.search, 0, wx.EXPAND | wx.BOTTOM, MARGIN)
+        column.Add(self.results, 1, wx.EXPAND)
+        row = wx.BoxSizer(wx.HORIZONTAL)
+        row.AddStretchSpacer()
+        row.Add(column, 0, wx.EXPAND)
+        row.AddStretchSpacer()
         sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self.search, 0, wx.EXPAND | wx.ALL, MARGIN)
-        sizer.Add(self.results, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, MARGIN)
+        sizer.Add(row, 1, wx.EXPAND | wx.ALL, MARGIN)
         panel.SetSizer(sizer)
         return panel
 
@@ -790,13 +805,26 @@ class WorldBox(wx.Panel):
         self.Refresh()
 
     def on_size(self, event):
-        width = max(0, self.GetClientSize()[0] - MARGIN * 2)
-        height = int(width / ASPECT)
-        if width > 0 and height != self.map_height:
-            self.map_height = height
-            self.map.SetMinSize(wx.Size(-1, height))
-            self.browse.Layout()
+        self.fit_column()
         event.Skip()
+
+    def fit_column(self):
+        width, height = self.GetClientSize()
+        width = min(COLUMN_WIDTH, width - MARGIN * 2)
+        if width <= 0:
+            return
+        map_height = int(width / ASPECT)
+        # as tall as its rows, whole rows when the window is shorter
+        room = (height - MARGIN * 3 - map_height) // ROW_STRIDE * ROW_STRIDE
+        list_height = max(ROW_STRIDE, min(len(self.list.rows) * ROW_STRIDE, room))
+        sizes = (wx.Size(width, map_height), wx.Size(width, list_height), wx.Size(width, -1))
+        if sizes == (self.map.GetMinSize(), self.list.GetMinSize(), self.results.GetMinSize()):
+            return
+        self.map.SetMinSize(sizes[0])
+        self.list.SetMinSize(sizes[1])
+        self.results.SetMinSize(sizes[2])
+        self.browse.Layout()
+        self.picker.Layout()
 
     def on_map_size(self, event):
         height = self.map.GetClientSize()[1]
@@ -931,6 +959,7 @@ class WorldBox(wx.Panel):
         self.map.moment = now
         self.map.set_pins(pins)
         self.list.set_rows(rows)
+        self.fit_column()
 
     def refresh_picker(self):
         now = datetime.now(timezone.utc)

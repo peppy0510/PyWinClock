@@ -14,6 +14,7 @@ import wx
 from ctypes import wintypes
 
 from utilities import Canvas
+from utilities import paint_now
 
 
 DRAG_START = 12
@@ -341,6 +342,9 @@ class Carousel(wx.EventFilter):
             step = 1
         elif offset >= width / 4.0 or speed >= FLING_SPEED:
             step = -1
+        if step:
+            # taken as the drag began, a clock in it would jump to the time when it lands
+            self.slide.pictures[step] = self.take(self.get_neighbour(step))
         self.animate(offset, -step * width, step)
 
     def go_to(self, index):
@@ -374,8 +378,11 @@ class Carousel(wx.EventFilter):
             return
         self.timer.Stop()
         self.animation = None
+        # hidden first: the page painted while the slide covers it is clipped away, and left to
+        # WM_PAINT its children paint one by one, a frame or two with the text missing
+        self.slide.Hide()
+        self.slide.pictures = {}
         if self.target != self.current():
             self.book.SetSelection(self.target)
             self.on_show(self.target)
-        self.slide.Hide()
-        self.slide.pictures = {}
+        paint_now(self.frame)
