@@ -12,6 +12,8 @@ import threading
 import time
 import wx
 
+from carousel import Carousel
+from carousel import PageDots
 from clockbox import ClockBox
 from countdownbox import CountdownBox
 from settingsbox import SettingsBox
@@ -41,6 +43,8 @@ MENU_ITEMS = (('Clock', 'clock'), ('World', 'globe'), ('Stopwatch', 'stopwatch')
               ('Countdown', 'countdown'), None, ('Settings', 'settings'))
 
 FRAME_STYLE = wx.DEFAULT_FRAME_STYLE & ~wx.CAPTION
+
+CAROUSEL_PAGES = 4
 
 MIN_VISIBLE_WIDTH = 120
 MIN_VISIBLE_HEIGHT = 32
@@ -97,7 +101,9 @@ class MainFrame(wx.Frame):
         self.worldbox = WorldBox(self.book, theme, settings, self.store_settings)
         self.stopwatchbox = StopwatchBox(self.book, theme)
         self.countdownbox = CountdownBox(self.book, theme)
-        self.settingsbox = SettingsBox(self.book, theme, settings, self.on_settings)
+        self.settings_folds = set(settings.get('settings_folded', []))
+        self.settingsbox = SettingsBox(self.book, theme, settings, self.on_settings,
+                                       self.settings_folds, self.store_settings)
         for page in (self.clockbox, self.worldbox, self.stopwatchbox,
                      self.countdownbox, self.settingsbox):
             self.book.AddPage(page, '')
@@ -105,10 +111,13 @@ class MainFrame(wx.Frame):
         self.titlebar = TitleBar(self, theme, self.on_menu, self.toggle_maximize)
         self.sidemenu = SideMenu(self, theme, MENU_ITEMS, self.on_select)
         apply_clip_siblings(self.book)
+        self.dots = PageDots(self, theme, CAROUSEL_PAGES, self.on_dot)
+        self.carousel = Carousel(self, self.book, CAROUSEL_PAGES, self.on_carousel, theme)
 
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(self.titlebar, 0, wx.EXPAND)
         sizer.Add(self.book, 1, wx.EXPAND)
+        sizer.Add(self.dots, 0, wx.EXPAND)
         self.SetSizer(sizer)
 
         self.apply_theme()
@@ -164,6 +173,8 @@ class MainFrame(wx.Frame):
         self.book.SetBackgroundColour(wx.Colour(theme['bg']))
         self.titlebar.set_theme(theme)
         self.sidemenu.set_theme(theme)
+        self.dots.set_theme(theme)
+        self.carousel.set_theme(theme)
 
         self.clockbox.apply_theme(theme)
         self.worldbox.apply_theme(theme)
@@ -179,7 +190,23 @@ class MainFrame(wx.Frame):
 
     def on_select(self, index):
         self.book.SetSelection(index)
+        self.show_dots(index)
         self.on_tick()
+
+    def on_dot(self, index):
+        self.carousel.go_to(index)
+
+    def on_carousel(self, index):
+        self.sidemenu.set_selection(index)
+        self.show_dots(index)
+        self.on_tick()
+
+    def show_dots(self, index):
+        self.dots.set_current(index)
+        shown = index < CAROUSEL_PAGES
+        if self.dots.IsShown() != shown:
+            self.dots.Show(shown)
+            self.Layout()
 
     def toggle_maximize(self):
         # a captionless window maximized by Windows overflows by its invisible border
@@ -297,6 +324,7 @@ class MainFrame(wx.Frame):
             'smooth_second': self.settingsbox.smooth.GetValue(),
             'cities': list(self.worldbox.names),
             'home_city': self.worldbox.home,
+            'settings_folded': sorted(self.settings_folds),
             'rect': self.stored_rect,
         })
 
@@ -314,6 +342,8 @@ class MainFrame(wx.Frame):
             self.Hide()
             return
         self.pacer.running = False
+        # its filter sees every event: removed before the windows go
+        self.carousel.close()
         # close() releases the mouse capture but starts the slide timer, which would
         # fire into the destroyed window (0xc0000374)
         self.sidemenu.close()

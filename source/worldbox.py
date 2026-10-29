@@ -89,7 +89,8 @@ def is_daylight(latitude, longitude, declination, sun_longitude):
 def draw_city_text(gc, theme, row, left, right, top, height, fill, time_size, colour=None):
     colour = colour or theme['text']
     time_font = get_font(time_size, bold=True)
-    draw_text_in(gc, row['time'], wx.Rect(0, int(top), right, height), time_font, colour,
+    # the digits' ClearType fringe ran a pixel past the dividers
+    draw_text_in(gc, row['time'], wx.Rect(0, int(top), right - 1, height), time_font, colour,
                  align='right', back=fill)
     gc.SetFont(time_font, wx.Colour(colour))
     time_width = gc.GetTextExtent(row['time'])[0]
@@ -561,6 +562,7 @@ class Toolbox(Canvas):
         self.buttons = (self.edit_button, self.add_button)
         # outside a sizer SetMinSize alone leaves the 20x20 default size
         for index, button in enumerate(self.buttons):
+            button.icon_shift = 1
             button.SetSize(self.PADDING + index * (self.BUTTON + self.GAP),
                            self.PADDING, self.BUTTON, self.BUTTON)
 

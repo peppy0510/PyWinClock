@@ -21,7 +21,7 @@ APP_NAME = 'PyWinClock'
 
 CONTROL_HEIGHT = 28
 ROUND_SIZE = 46
-CARD_HEIGHT = 54
+CARD_HEIGHT = 50
 CARD_RADIUS = 6
 CONTROL_GAP = 4
 
@@ -75,6 +75,15 @@ THEMES = {
         'pin_edge': '#0e0f12',
         'close': '#c42b1c',
         'titlebar_dark': True,
+        'band': '#17181b',
+        'control_hover': '#2f3237',
+        'control_down': '#202226',
+        'edge': '#363940',
+        'on_accent': '#101215',
+        'thumb': '#c4c7cc',
+        'thumb_hover': '#e6e7e9',
+        'thumb_line': '#2a2d32',
+        'track': '#2c2f35',
     },
     'light': {
         'bg': '#f4f5f7',
@@ -98,6 +107,15 @@ THEMES = {
         'pin_edge': '#ffffff',
         'close': '#c42b1c',
         'titlebar_dark': False,
+        'band': '#eef0f2',
+        'control_hover': '#e2e5ea',
+        'control_down': '#d8dce2',
+        'edge': '#c9ced5',
+        'on_accent': '#ffffff',
+        'thumb': '#5b626b',
+        'thumb_hover': '#3d434b',
+        'thumb_line': '#ffffff',
+        'track': '#d5d9df',
     },
 }
 
@@ -465,3 +483,48 @@ class TimerCanvas(Canvas):
         top = height / 2 - text_height / 2 + offset
         gc.DrawText(text, (width - text_width) / 2, top)
         return top + text_height
+
+
+PANEL_RADIUS = 3
+HEADER_BAND = 30
+PANEL_MARGIN = 8
+PANEL_GAP = 3
+PANEL_PAD = 14
+BUTTON_HEIGHT = 22
+BUTTON_PAD = 11
+BUTTON_GAP = 4
+BUTTON_FONT = 8.5
+BAND_INSET = (HEADER_BAND - BUTTON_HEIGHT) // 2
+
+
+def fill_rect(gc, colour, x, y, width, height, radius=0):
+    gc.SetPen(wx.TRANSPARENT_PEN)
+    gc.SetBrush(wx.Brush(wx.Colour(colour)))
+    if radius:
+        gc.DrawRoundedRectangle(x, y, width, height, radius)
+    else:
+        gc.DrawRectangle(x, y, width, height)
+
+
+def draw_frame(gc, colour, x, y, width, height):
+    fill_rect(gc, colour, x, y, width, 1)
+    fill_rect(gc, colour, x, y + height - 1, width, 1)
+    fill_rect(gc, colour, x, y, 1, height)
+    fill_rect(gc, colour, x + width - 1, y, 1, height)
+
+
+def draw_chevron(gc, name, cx, cy, size, colour):
+    gc.SetPen(gc.CreatePen(wx.GraphicsPenInfo(wx.Colour(colour)).Width(1.5)
+                           .Cap(wx.CAP_ROUND).Join(wx.JOIN_ROUND)))
+    gc.SetBrush(wx.TRANSPARENT_BRUSH)
+    half = size / 2
+    path = gc.CreatePath()
+    if name == 'down':
+        path.MoveToPoint(cx - half * 0.7, cy - half * 0.35)
+        path.AddLineToPoint(cx, cy + half * 0.35)
+        path.AddLineToPoint(cx + half * 0.7, cy - half * 0.35)
+    else:
+        path.MoveToPoint(cx - half * 0.35, cy - half * 0.7)
+        path.AddLineToPoint(cx + half * 0.35, cy)
+        path.AddLineToPoint(cx - half * 0.35, cy + half * 0.7)
+    gc.StrokePath(path)
