@@ -319,6 +319,7 @@ class CityList(Canvas):
         self.Bind(wx.EVT_MOTION, self.on_motion)
         self.Bind(wx.EVT_LEAVE_WINDOW, self.on_leave)
         self.Bind(wx.EVT_LEFT_UP, self.on_up)
+        self.Bind(wx.EVT_SIZE, self.on_size)
 
     def set_rows(self, rows):
         self.rows = rows
@@ -326,6 +327,14 @@ class CityList(Canvas):
         if not self.timer.IsRunning():
             self.scroll = float(self.offset * ROW_STRIDE)
         self.Refresh()
+
+    def on_size(self, event):
+        # grown taller, rows scrolled away while it was small fit again
+        limit = max(0, len(self.rows) - self.get_visible_count())
+        if self.offset > limit:
+            self.offset = limit
+            self.scroll = float(limit * ROW_STRIDE)
+        event.Skip()
 
     def set_editing(self, editing):
         if editing != self.editing:
@@ -643,11 +652,16 @@ class CityPicker(Canvas):
         self.Bind(wx.EVT_MOTION, self.on_motion)
         self.Bind(wx.EVT_LEAVE_WINDOW, self.on_leave)
         self.Bind(wx.EVT_LEFT_UP, self.on_up)
+        self.Bind(wx.EVT_SIZE, self.on_size)
 
     def set_rows(self, rows):
         self.rows = rows
         self.offset = 0
         self.Refresh()
+
+    def on_size(self, event):
+        self.offset = min(self.offset, max(0, len(self.rows) - self.get_visible_count()))
+        event.Skip()
 
     def get_visible_count(self):
         return max(1, self.GetClientSize()[1] // self.ROW)

@@ -33,17 +33,17 @@ PRF_ERASEBKGND = 0x0008
 user32 = ctypes.WinDLL('user32', use_last_error=True)
 user32.SendMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
 user32.SendMessageW.restype = wintypes.LPARAM
-user32.PrintWindow.argtypes = [wintypes.HWND, wintypes.HDC, wintypes.UINT]
-PW_RENDERFULLCONTENT = 0x0002
 
 
 def capture(window):
+    # a blit of what DWM keeps for the window, covered or off-screen parts too;
+    # PrintWindow repaints it all and took 25-50 ms as a drag began
     width, height = window.GetClientSize()
     bitmap = wx.Bitmap(max(width, 1), max(height, 1))
     dc = wx.MemoryDC(bitmap)
-    ok = user32.PrintWindow(window.GetHandle(), dc.GetHDC(), PW_RENDERFULLCONTENT)
+    dc.Blit(0, 0, width, height, wx.ClientDC(window), 0, 0)
     dc.SelectObject(wx.NullBitmap)
-    return bitmap if ok else None
+    return bitmap
 
 
 def print_native(window):
@@ -219,6 +219,7 @@ class Carousel(wx.EventFilter):
         self.motion = []
         self.target = None
         self.animation = None
+        self.drawn = set()
         self.timer = wx.Timer(self.slide)
         self.slide.Bind(wx.EVT_TIMER, self.on_frame, self.timer)
         self.slide.Bind(wx.EVT_MOTION, self.on_drag)
@@ -232,6 +233,7 @@ class Carousel(wx.EventFilter):
 
     def set_theme(self, theme):
         self.theme = theme
+        self.drawn.clear()
         self.slide.set_theme(theme)
 
     def current(self):
@@ -279,12 +281,12 @@ class Carousel(wx.EventFilter):
             page.SetSize(0, 0, width, height)
             page.Layout()
         if index == self.current():
-            shown = capture(page)
-            if shown is not None:
-                return shown
-        tick = getattr(page, 'tick', None) if index != self.current() else None
-        # a hidden page's first drawing sets what its tick places by
-        for _ in range(1 if tick is None else 2):
+            return capture(page)
+        tick = getattr(page, 'tick', None)
+        # a hidden page's first drawing at a size sets what its tick places by
+        first = (index, width, height) not in self.drawn
+        self.drawn.add((index, width, height))
+        for _ in range(2 if tick is not None and first else 1):
             if tick is not None:
                 try:
                     tick()
