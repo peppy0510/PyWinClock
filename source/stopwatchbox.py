@@ -64,7 +64,7 @@ class LapList(Canvas):
                 tag = 'Fastest'
             elif index == slowest:
                 tag = 'Slowest'
-            self.rows.insert(0, ('%d' % (index + 1), tag,
+            self.rows.insert(0, (f'{index + 1}', tag,
                                  format_timer(splits[index]), format_timer(total)))
         self.offset = 0
         self.Refresh()

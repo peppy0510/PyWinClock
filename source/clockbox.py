@@ -287,11 +287,10 @@ class ClockBox(wx.Panel):
         if self.use_24h:
             return now.strftime('%H:%M:%S')
         meridiem = 'AM' if now.hour < 12 else 'PM'
-        return '%d:%s %s' % ((now.hour % 12) or 12, now.strftime('%M:%S'), meridiem)
+        return f'{int((now.hour % 12) or 12)}:{now.strftime("%M:%S")} {meridiem}'
 
     def format_date(self, now, zone):
-        return '%s (%s) · %s' % (
-            now.strftime('%Y-%m-%d'), WEEKDAYS[now.weekday()], zone)
+        return f'{now.strftime("%Y-%m-%d")} ({WEEKDAYS[now.weekday()]}) · {zone}'
 
     def tick(self):
         if self.GetTopLevelParent().IsIconized():
@@ -301,7 +300,7 @@ class ClockBox(wx.Panel):
         offset = local.strftime('%z')
 
         labels = [(self.digital, self.format_time(local)),
-                  (self.datetext, self.format_date(local, 'UTC%s:%s' % (offset[:3], offset[3:])))]
+                  (self.datetext, self.format_date(local, f'UTC{offset[:3]}:{offset[3:]}'))]
         if self.use_utc:
             labels += [(self.utc_digital, self.format_time(utc)),
                        (self.utc_datetext, self.format_date(utc, 'UTC'))]

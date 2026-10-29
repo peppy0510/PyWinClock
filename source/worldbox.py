@@ -855,7 +855,8 @@ class WorldBox(wx.Panel):
     def get_shift_text(self, minutes, unit=''):
         sign = '-' if minutes < 0 else '+'
         hours, rest = divmod(abs(minutes), 60)
-        return '%s%s%dh%s' % (unit, sign, hours, ' %02dm' % rest if rest else '')
+        rest = f' {int(rest):02d}m' if rest else ''
+        return f'{unit}{sign}{int(hours)}h{rest}'
 
     def get_detail_text(self, moment, local, home=False):
         if home:

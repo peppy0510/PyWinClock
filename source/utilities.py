@@ -242,11 +242,11 @@ def save_settings(settings):
 
 def format_hms(seconds):
     total = int(seconds)
-    return '%02d:%02d:%02d' % (total // 3600, total % 3600 // 60, total % 60)
+    return f'{total // 3600:02d}:{total % 3600 // 60:02d}:{total % 60:02d}'
 
 
 def format_hundredths(seconds):
-    return '.%02d' % (int(seconds * 100) % 100)
+    return f'.{int(seconds * 100) % 100:02d}'
 
 
 def format_timer(seconds):

@@ -35,7 +35,7 @@ EDGE_GAP = 14
 
 
 def format_duration(seconds):
-    return '%02d:%02d:%02d' % (seconds // 3600, seconds % 3600 // 60, seconds % 60)
+    return f'{int(seconds // 3600):02d}:{int(seconds % 3600 // 60):02d}:{int(seconds % 60):02d}'
 
 
 def parse_duration(text):

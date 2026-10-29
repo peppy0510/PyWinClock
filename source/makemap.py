@@ -88,8 +88,8 @@ def main():
         json.dump({'scale': SCALE, 'rings': rings}, file, separators=(',', ':'))
 
     kept = sum(len(ring) for ring in rings) // 2
-    print('rings %d, points %d -> %d, %d bytes'
-          % (len(rings), source_points, kept, os.path.getsize(path)))
+    print(f'rings {len(rings)}, points {source_points} -> {kept}, '
+          f'{os.path.getsize(path)} bytes')
 
 
 if __name__ == '__main__':
