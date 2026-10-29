@@ -146,6 +146,7 @@ class SideMenu(Canvas):
         index = self.hit_test(event.GetPosition())
         if index != self.hovered:
             self.hovered = index
+            self.SetCursor(wx.Cursor(wx.CURSOR_HAND if index >= 0 else wx.CURSOR_ARROW))
             self.Refresh()
 
     def on_leave(self, event):

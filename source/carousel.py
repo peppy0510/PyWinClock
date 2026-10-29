@@ -378,11 +378,15 @@ class Carousel(wx.EventFilter):
             return
         self.timer.Stop()
         self.animation = None
-        # hidden first: the page painted while the slide covers it is clipped away, and left to
-        # WM_PAINT its children paint one by one, a frame or two with the text missing
-        self.slide.Hide()
-        self.slide.pictures = {}
-        if self.target != self.current():
-            self.book.SetSelection(self.target)
-            self.on_show(self.target)
+        # frozen until the new page is whole: a page shown or uncovered erases first, and the
+        # screen caught it blank in between (2 slides in 12)
+        self.frame.Freeze()
+        try:
+            self.slide.Hide()
+            self.slide.pictures = {}
+            if self.target != self.current():
+                self.book.SetSelection(self.target)
+                self.on_show(self.target)
+        finally:
+            self.frame.Thaw()
         paint_now(self.frame)

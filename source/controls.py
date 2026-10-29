@@ -201,8 +201,6 @@ class RoundButton(Pressable):
             gc.FillPath(path)
 
         elif self.icon in ('plus', 'minus'):
-            # a stroke through the exact centre reads low
-            cy -= 1
             arm = radius * 0.44
             gc.SetPen(wx.Pen(colour, max(1, round(radius * 0.13))))
             gc.StrokeLine(cx - arm, cy, cx + arm, cy)

@@ -189,8 +189,13 @@ class MainFrame(wx.Frame):
         self.sidemenu.toggle()
 
     def on_select(self, index):
-        self.book.SetSelection(index)
-        self.show_dots(index)
+        # frozen as in the carousel: unfrozen, the new page showed blank first (9 switches in 16)
+        self.Freeze()
+        try:
+            self.book.SetSelection(index)
+            self.show_dots(index)
+        finally:
+            self.Thaw()
         self.on_tick()
 
     def on_dot(self, index):

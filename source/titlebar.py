@@ -154,6 +154,7 @@ class TitleBar(Canvas):
         name = self.hit_test(event.GetPosition())
         if name != self.hovered:
             self.hovered = name
+            self.SetCursor(wx.Cursor(wx.CURSOR_HAND if name is not None else wx.CURSOR_ARROW))
             self.Refresh()
 
     def on_leave(self, event):

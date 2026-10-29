@@ -428,6 +428,7 @@ class CityList(Canvas):
         button = self.hit_button(x, y)
         if button != self.on_button:
             self.on_button = button
+            self.SetCursor(wx.Cursor(wx.CURSOR_HAND if button >= 0 else wx.CURSOR_ARROW))
             self.Refresh()
         self.report(self.hit_test(y))
 
@@ -571,9 +572,9 @@ class Toolbox(Canvas):
         self.add_button = RoundButton(self, theme, 'plus', on_add, tone='ghost',
                                       size=self.BUTTON, square=True, backdrop=plate)
         self.buttons = (self.edit_button, self.add_button)
+        self.edit_button.icon_shift = 1
         # outside a sizer SetMinSize alone leaves the 20x20 default size
         for index, button in enumerate(self.buttons):
-            button.icon_shift = 1
             button.SetSize(self.PADDING + index * (self.BUTTON + self.GAP),
                            self.PADDING, self.BUTTON, self.BUTTON)
 
@@ -688,6 +689,8 @@ class CityPicker(Canvas):
         index = self.hit_test(event.GetY())
         if index != self.hovered:
             self.hovered = index
+            pickable = index >= 0 and not self.rows[index]['taken']
+            self.SetCursor(wx.Cursor(wx.CURSOR_HAND if pickable else wx.CURSOR_ARROW))
             self.Refresh()
 
     def on_leave(self, event):
