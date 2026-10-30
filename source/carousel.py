@@ -37,8 +37,7 @@ user32.SendMessageW.restype = wintypes.LPARAM
 
 
 def capture(window):
-    # a blit of what DWM keeps for the window, covered or off-screen parts too;
-    # PrintWindow repaints it all and took 25-50 ms as a drag began
+    # what DWM keeps, covered or off-screen too; PrintWindow repaints it all (25-50 ms)
     width, height = window.GetClientSize()
     bitmap = wx.Bitmap(max(width, 1), max(height, 1))
     dc = wx.MemoryDC(bitmap)
@@ -378,8 +377,7 @@ class Carousel(wx.EventFilter):
             return
         self.timer.Stop()
         self.animation = None
-        # frozen until the new page is whole: a page shown or uncovered erases first, and the
-        # screen caught it blank in between (2 slides in 12)
+        # frozen until the new page is whole: a page shown or uncovered erases first
         self.frame.Freeze()
         try:
             self.slide.Hide()

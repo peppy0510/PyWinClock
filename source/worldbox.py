@@ -41,7 +41,7 @@ ROW_HEIGHT = 52
 ROW_GAP = 0
 ROW_STRIDE = ROW_HEIGHT + ROW_GAP
 MARGIN = 14
-# the map and the list stop growing here and stay centred, as the dial does on the other pages
+# the map and the list stop growing here and stay centred, as the other pages' dial
 COLUMN_WIDTH = 400
 ADD_SIZE = 36
 PHASE_WIDTH = 24

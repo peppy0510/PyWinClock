@@ -189,7 +189,7 @@ class MainFrame(wx.Frame):
         self.sidemenu.toggle()
 
     def on_select(self, index):
-        # frozen as in the carousel: unfrozen, the new page showed blank first (9 switches in 16)
+        # frozen as in the carousel: a page shown erases first
         self.Freeze()
         try:
             self.book.SetSelection(index)
