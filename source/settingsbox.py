@@ -7,12 +7,21 @@ email: peppy0510@hotmail.com
 '''
 
 
+import subprocess
+import wx
+
+from panels import AboutCard
 from panels import ActionCard
 from panels import ChoiceCard
 from panels import Panel
 from panels import ScrollArea
 from panels import SettingCard
+from utilities import APP_AUTHOR
+from utilities import APP_EMAIL
+from utilities import APP_HOME
 from utilities import APP_NAME
+from utilities import APP_VERSION
+from utilities import get_asset_path
 
 
 CLOCK_PRESETS = (('classic', 'Classic'), ('minimal', 'Minimal'))
@@ -70,6 +79,11 @@ class SettingsBox(ScrollArea):
             Panel(board, theme, 'settings.appearance', 'Appearance',
                   (self.preset, self.smooth, self.theme_choice, self.accent_choice), self.folds,
                   self.on_fold),
+            Panel(board, theme, 'settings.about', 'About',
+                  (AboutCard(board, theme, f'{APP_NAME} {APP_VERSION}',
+                             (APP_AUTHOR, APP_EMAIL), 'GitHub', self.on_home,
+                             wx.Image(get_asset_path('icon', 'muteklab.png'))),),
+                  self.folds, self.on_fold),
         ])
         self.bind_children()
         self.apply_theme(theme)
@@ -86,6 +100,10 @@ class SettingsBox(ScrollArea):
             return
         self.shortcut.set_description('Shortcut created')
         self.shortcut.set_tone('plain')
+
+    def on_home(self):
+        # explorer hands the link to the shell, so the browser does not inherit elevation
+        subprocess.Popen(['explorer', APP_HOME])
 
     def on_fold(self):
         self.relayout_panels()
