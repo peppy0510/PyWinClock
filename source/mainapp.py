@@ -103,8 +103,9 @@ class MainFrame(wx.Frame):
 
         self.book = wx.Simplebook(self)
         self.clockbox = ClockBox(self.book, theme, self.on_clock_zone)
-        # picked on the clock page itself
-        self.clockbox.use_utc = settings.get('use_utc', False)
+        # picked on the clock page, offered when the UTC setting is on
+        self.clockbox.use_utc = settings.get(
+            'clock_zone', 'utc' if settings.get('use_utc') else 'local') == 'utc'
         self.worldbox = WorldBox(self.book, theme, settings, self.store_settings)
         self.stopwatchbox = StopwatchBox(self.book, theme)
         self.countdownbox = CountdownBox(self.book, theme)
@@ -254,7 +255,7 @@ class MainFrame(wx.Frame):
 
     def on_settings(self):
         self.clockbox.set_options(self.settingsbox.use24h.GetValue(),
-                                  self.clockbox.use_utc,
+                                  self.settingsbox.useutc.GetValue(),
                                   self.settingsbox.preset.GetValue(),
                                   self.settingsbox.smooth.GetValue())
         self.worldbox.set_options(self.settingsbox.use24h.GetValue())
@@ -336,7 +337,8 @@ class MainFrame(wx.Frame):
             'theme': self.settingsbox.theme_choice.GetValue(),
             'on_top': self.settingsbox.ontop.GetValue(),
             'use_24h': self.settingsbox.use24h.GetValue(),
-            'use_utc': self.clockbox.use_utc,
+            'use_utc': self.settingsbox.useutc.GetValue(),
+            'clock_zone': 'utc' if self.clockbox.use_utc else 'local',
             'tray_icon': self.settingsbox.tray.GetValue(),
             'close_to_tray': self.settingsbox.close_to_tray.GetValue(),
             'auto_hide_menu': self.settingsbox.autohide.GetValue(),

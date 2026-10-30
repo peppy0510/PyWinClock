@@ -330,8 +330,8 @@ class WorldMap(Canvas):
 class CityList(Canvas):
 
     CLOSE_SIZE = 22
-    BUTTON_SIZE = 24
-    BUTTON_RADIUS = 6
+    # as the map's ghost keys (RoundButton, square): their size, inset and corner
+    BUTTON_SIZE = 28
 
     STEP = 16
     SCROLL_EASING = 0.28
@@ -555,11 +555,11 @@ class CityList(Canvas):
             grey = wx.Colour(theme['tick'])
             gc.SetPen(wx.TRANSPARENT_PEN)
             gc.SetBrush(wx.Brush(wx.Colour(grey.Red(), grey.Green(), grey.Blue(), 64)))
-            gc.DrawRoundedRectangle(rect.x, rect.y, rect.width, rect.height,
-                                    self.BUTTON_RADIUS)
+            gc.DrawRoundedRectangle(rect.x + 1, rect.y + 1, rect.width - 2, rect.height - 2,
+                                    RoundButton.CORNER)
 
         cx, cy = rect.x + rect.width / 2, rect.y + rect.height / 2
-        colour = theme['text'] if index == self.on_button else theme['dim']
+        colour = theme['dim']
         if row['fixed']:
             draw_glyph(gc, 'home', cx, cy, 11, colour, 1.5)
         else:

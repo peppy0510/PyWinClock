@@ -33,6 +33,7 @@ class SettingsBox(ScrollArea):
             return SettingCard(board, theme, label, description, on_change)
 
         self.use24h = toggle('24-hour clock', 'Show the time as 00-23')
+        self.useutc = toggle('UTC', 'Offer UTC beside local time on the clock page')
         self.ontop = toggle('Always on top', 'Keep the window above others')
         self.tray = toggle('Tray icon', 'Show an icon in the notification area')
         self.close_to_tray = toggle('Close to tray',
@@ -50,6 +51,7 @@ class SettingsBox(ScrollArea):
                                         on_change)
 
         self.use24h.SetValue(settings.get('use_24h', True))
+        self.useutc.SetValue(settings.get('use_utc', False))
         self.ontop.SetValue(settings.get('on_top', False))
         self.tray.SetValue(settings.get('tray_icon', True))
         self.close_to_tray.SetValue(settings.get('close_to_tray', False))
@@ -60,7 +62,7 @@ class SettingsBox(ScrollArea):
         self.accent_choice.SetValue(settings.get('accent', 'blue'))
 
         self.set_panels([
-            Panel(board, theme, 'settings.clock', 'Clock', (self.use24h,),
+            Panel(board, theme, 'settings.clock', 'Clock', (self.use24h, self.useutc),
                   self.folds, self.on_fold),
             Panel(board, theme, 'settings.window', 'Window',
                   (self.ontop, self.tray, self.close_to_tray, self.autohide, self.shortcut),

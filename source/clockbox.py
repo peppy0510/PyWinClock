@@ -258,7 +258,9 @@ class ZoneSwitch(Pressable):
 class ClockBox(wx.Panel):
 
     use_24h = True
+    # use_utc: the switch's pick; utc_offered: the setting that shows the switch at all
     use_utc = False
+    utc_offered = False
     digital_size = 0
     digital_lead = 0
     placed = None
@@ -302,8 +304,10 @@ class ClockBox(wx.Panel):
             dc = wx.MemoryDC(wx.Bitmap(1, 1))
             dc.SetFont(get_font(size, bold=True))
             self.digital_lead = dc.GetFontMetrics().internalLeading
-        return (self.digital.GetBestSize()[1] + DATE_GAP + self.datetext.GetBestSize()[1] +
-                SWITCH_GAP + self.zone.GetMinSize()[1])
+        block = self.digital.GetBestSize()[1] + DATE_GAP + self.datetext.GetBestSize()[1]
+        if self.utc_offered:
+            block += SWITCH_GAP + self.zone.GetMinSize()[1]
+        return block
 
     def update_layout(self):
         # numeral size follows the diameter and the diameter follows the text height,
@@ -345,11 +349,12 @@ class ClockBox(wx.Panel):
         self.datetext.SetForegroundColour(wx.Colour(theme['dim']))
         self.Refresh()
 
-    def set_options(self, use_24h, use_utc, preset, smooth):
+    def set_options(self, use_24h, utc_offered, preset, smooth):
         self.use_24h = use_24h
-        self.use_utc = use_utc
+        self.utc_offered = utc_offered
         self.canvas.set_preset(preset, smooth)
-        self.zone.SetValue('utc' if use_utc else 'local')
+        self.zone.SetValue('utc' if self.use_utc else 'local')
+        self.zone.Show(utc_offered)
         self.placed = None
         self.update_layout()
         self.tick()
@@ -370,8 +375,9 @@ class ClockBox(wx.Panel):
         local = utc.astimezone()
         offset = local.strftime('%z')
 
-        now = utc if self.use_utc else local
-        zone = 'UTC' if self.use_utc else f'UTC{offset[:3]}:{offset[3:]}'
+        shows_utc = self.use_utc and self.utc_offered
+        now = utc if shows_utc else local
+        zone = 'UTC' if shows_utc else f'UTC{offset[:3]}:{offset[3:]}'
         labels = [(self.digital, self.format_time(now)),
                   (self.datetext, self.format_date(now, zone))]
 
