@@ -11,6 +11,7 @@ import time
 import wx
 
 from controls import RoundButton
+from controls import set_start
 from utilities import MAX_TIME_SIZE
 from utilities import Canvas
 from utilities import TimerCanvas
@@ -131,7 +132,7 @@ class StopwatchBox(wx.Panel):
         self.totals = []
 
         self.canvas = StopwatchCanvas(self, theme)
-        self.start_button = RoundButton(self, theme, 'play', self.on_start, tone='primary')
+        self.start_button = RoundButton(self, theme, 'play', self.on_start)
         self.lap_button = RoundButton(self, theme, 'flag', self.on_lap)
         self.reset_button = RoundButton(self, theme, 'reset', self.on_reset)
         self.buttons = (self.start_button, self.lap_button, self.reset_button)
@@ -184,11 +185,11 @@ class StopwatchBox(wx.Panel):
         if self.running:
             self.elapsed = self.get_elapsed()
             self.running = False
-            self.start_button.set_icon('play')
+            set_start(self.start_button, False)
         else:
             self.started_at = time.perf_counter()
             self.running = True
-            self.start_button.set_icon('pause')
+            set_start(self.start_button, True)
 
     def on_lap(self):
         elapsed = self.get_elapsed()
@@ -200,7 +201,7 @@ class StopwatchBox(wx.Panel):
     def on_reset(self):
         self.running = False
         self.elapsed = 0.0
-        self.start_button.set_icon('play')
+        set_start(self.start_button, False)
         self.totals = []
         self.laps.clear()
         self.tick()

@@ -17,6 +17,7 @@ from utilities import APP_NAME
 
 CLOCK_PRESETS = (('classic', 'Classic'), ('minimal', 'Minimal'))
 THEMES = (('auto', 'Auto'), ('light', 'Light'), ('dark', 'Dark'))
+ACCENTS = (('blue', 'Blue'), ('red', 'Red'))
 SHORTCUT_NOTE = 'Put a shortcut in the Start menu'
 
 
@@ -32,7 +33,6 @@ class SettingsBox(ScrollArea):
             return SettingCard(board, theme, label, description, on_change)
 
         self.use24h = toggle('24-hour clock', 'Show the time as 00-23')
-        self.useutc = toggle('UTC', 'Show UTC instead of local time')
         self.ontop = toggle('Always on top', 'Keep the window above others')
         self.tray = toggle('Tray icon', 'Show an icon in the notification area')
         self.close_to_tray = toggle('Close to tray',
@@ -45,9 +45,11 @@ class SettingsBox(ScrollArea):
         self.smooth = toggle('Smooth second hand', 'Sweep instead of stepping once a second')
         self.theme_choice = ChoiceCard(board, theme, 'Theme', 'Auto follows Windows', THEMES,
                                        on_change)
+        self.accent_choice = ChoiceCard(board, theme, 'Accent',
+                                        'Buttons on, the rings, the map and the menu', ACCENTS,
+                                        on_change)
 
         self.use24h.SetValue(settings.get('use_24h', True))
-        self.useutc.SetValue(settings.get('use_utc', False))
         self.ontop.SetValue(settings.get('on_top', False))
         self.tray.SetValue(settings.get('tray_icon', True))
         self.close_to_tray.SetValue(settings.get('close_to_tray', False))
@@ -55,15 +57,17 @@ class SettingsBox(ScrollArea):
         self.preset.SetValue(settings.get('clock_preset', 'classic'))
         self.smooth.SetValue(settings.get('smooth_second', True))
         self.theme_choice.SetValue(settings.get('theme', 'dark'))
+        self.accent_choice.SetValue(settings.get('accent', 'blue'))
 
         self.set_panels([
-            Panel(board, theme, 'settings.clock', 'Clock', (self.use24h, self.useutc),
+            Panel(board, theme, 'settings.clock', 'Clock', (self.use24h,),
                   self.folds, self.on_fold),
             Panel(board, theme, 'settings.window', 'Window',
                   (self.ontop, self.tray, self.close_to_tray, self.autohide, self.shortcut),
                   self.folds, self.on_fold),
             Panel(board, theme, 'settings.appearance', 'Appearance',
-                  (self.preset, self.smooth, self.theme_choice), self.folds, self.on_fold),
+                  (self.preset, self.smooth, self.theme_choice, self.accent_choice), self.folds,
+                  self.on_fold),
         ])
         self.bind_children()
         self.apply_theme(theme)

@@ -647,7 +647,7 @@ class SearchBox(Canvas):
         size = self.HEIGHT - self.PADDING * 2
         # no solid backdrop, its square corners would poke out of the rounded card
         self.back_button = RoundButton(self, theme, 'back', on_back, tone='ghost',
-                                       size=size)
+                                       size=size, square=True)
         self.field = wx.TextCtrl(self, style=wx.TE_PROCESS_ENTER | wx.NO_BORDER)
         self.field.SetHint('Search a city')
         self.SetMinSize(wx.Size(-1, self.HEIGHT))

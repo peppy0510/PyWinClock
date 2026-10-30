@@ -24,6 +24,7 @@ from tray import TrayIcon
 from worldbox import WorldBox
 from utilities import APP_NAME
 from utilities import THEMES
+from utilities import apply_accent
 from utilities import apply_clip_siblings
 from utilities import apply_no_caption
 from utilities import apply_titlebar_theme
@@ -93,13 +94,17 @@ class MainFrame(wx.Frame):
         apply_no_caption(self)
 
         self.theme_name = self.resolve_theme(settings.get('theme', 'dark'))
+        self.accent_name = settings.get('accent', 'blue')
+        apply_accent(self.accent_name)
         self.theme_checked = time.monotonic()
         theme = THEMES[self.theme_name]
 
         self.set_icon()
 
         self.book = wx.Simplebook(self)
-        self.clockbox = ClockBox(self.book, theme)
+        self.clockbox = ClockBox(self.book, theme, self.on_clock_zone)
+        # picked on the clock page itself
+        self.clockbox.use_utc = settings.get('use_utc', False)
         self.worldbox = WorldBox(self.book, theme, settings, self.store_settings)
         self.stopwatchbox = StopwatchBox(self.book, theme)
         self.countdownbox = CountdownBox(self.book, theme)
@@ -244,9 +249,12 @@ class MainFrame(wx.Frame):
             return
         event.Skip()
 
+    def on_clock_zone(self, use_utc):
+        self.store_settings()
+
     def on_settings(self):
         self.clockbox.set_options(self.settingsbox.use24h.GetValue(),
-                                  self.settingsbox.useutc.GetValue(),
+                                  self.clockbox.use_utc,
                                   self.settingsbox.preset.GetValue(),
                                   self.settingsbox.smooth.GetValue())
         self.worldbox.set_options(self.settingsbox.use24h.GetValue())
@@ -289,8 +297,11 @@ class MainFrame(wx.Frame):
     def update_theme(self):
         self.theme_checked = time.monotonic()
         theme_name = self.resolve_theme(self.settingsbox.theme_choice.GetValue())
-        if theme_name != self.theme_name:
+        accent_name = self.settingsbox.accent_choice.GetValue()
+        if theme_name != self.theme_name or accent_name != self.accent_name:
             self.theme_name = theme_name
+            self.accent_name = accent_name
+            apply_accent(accent_name)
             self.apply_theme()
 
     def on_size(self, event):
@@ -325,12 +336,13 @@ class MainFrame(wx.Frame):
             'theme': self.settingsbox.theme_choice.GetValue(),
             'on_top': self.settingsbox.ontop.GetValue(),
             'use_24h': self.settingsbox.use24h.GetValue(),
-            'use_utc': self.settingsbox.useutc.GetValue(),
+            'use_utc': self.clockbox.use_utc,
             'tray_icon': self.settingsbox.tray.GetValue(),
             'close_to_tray': self.settingsbox.close_to_tray.GetValue(),
             'auto_hide_menu': self.settingsbox.autohide.GetValue(),
             'clock_preset': self.settingsbox.preset.GetValue(),
             'smooth_second': self.settingsbox.smooth.GetValue(),
+            'accent': self.settingsbox.accent_choice.GetValue(),
             'cities': list(self.worldbox.names),
             'home_city': self.worldbox.home,
             'settings_folded': sorted(self.settings_folds),

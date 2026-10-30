@@ -11,6 +11,11 @@ import datetime
 import math
 import wx
 
+from controls import Pressable
+from panels import draw_button
+from panels import get_button_width
+from utilities import BUTTON_GAP
+from utilities import BUTTON_HEIGHT
 from utilities import MAX_DIAL
 from utilities import Canvas
 from utilities import get_font
@@ -22,7 +27,7 @@ GAP = 28
 SIDE_GAP = 32
 MIN_DIAMETER = 80
 DATE_GAP = 2
-UTC_GAP = 12
+SWITCH_GAP = 14
 
 
 class ClockCanvas(Canvas):
@@ -176,6 +181,80 @@ class ClockCanvas(Canvas):
                       cx + length * math.sin(angle), cy - length * math.cos(angle))
 
 
+class ZoneSwitch(Pressable):
+
+    '''Local or UTC, the time the page shows'''
+
+    OPTIONS = (('local', 'Local'), ('utc', 'UTC'))
+
+    def __init__(self, parent, theme, on_change):
+        super().__init__(parent, theme, self.activate)
+        self.on_change = on_change
+        self.value = 'local'
+        self.marked = -1
+        self.down_index = -1
+        self.segment = max(get_button_width(name) for _, name in self.OPTIONS)
+        count = len(self.OPTIONS)
+        self.SetMinSize(wx.Size(self.segment * count + BUTTON_GAP * (count - 1), BUTTON_HEIGHT))
+
+    def GetValue(self):
+        return self.value
+
+    def SetValue(self, value):
+        if value != self.value:
+            self.value = value
+            self.Refresh()
+
+    def get_cell(self, index):
+        return wx.Rect((self.segment + BUTTON_GAP) * index, 0, self.segment, BUTTON_HEIGHT)
+
+    def get_index(self, position):
+        for index in range(len(self.OPTIONS)):
+            if self.get_cell(index).Contains(position):
+                return index
+        return -1
+
+    def hits(self, position):
+        return self.get_index(position) >= 0
+
+    def on_track(self, event):
+        index = self.get_index(event.GetPosition())
+        if index != self.marked:
+            self.marked = index
+            self.Refresh()
+        super().on_track(event)
+
+    def on_down(self, event):
+        self.down_index = self.get_index(event.GetPosition())
+        super().on_down(event)
+
+    def on_leave(self, event):
+        if self.marked != -1:
+            self.marked = -1
+            self.Refresh()
+        super().on_leave(event)
+
+    def activate(self):
+        index = self.get_index(self.up_position)
+        if index < 0 or index != self.down_index or self.OPTIONS[index][0] == self.value:
+            return
+        self.value = self.OPTIONS[index][0]
+        self.Refresh()
+        self.on_change()
+
+    def draw(self, gc, width, height):
+        for index, (value, name) in enumerate(self.OPTIONS):
+            if value == self.value:
+                state = 'lit'
+            elif self.pressed and index == self.down_index and index == self.marked:
+                state = 'down'
+            elif index == self.marked:
+                state = 'hover'
+            else:
+                state = 'plain'
+            draw_button(gc, self.theme, self.get_cell(index), name, state)
+
+
 class ClockBox(wx.Panel):
 
     use_24h = True
@@ -184,27 +263,24 @@ class ClockBox(wx.Panel):
     digital_lead = 0
     placed = None
 
-    def __init__(self, parent, theme):
+    def __init__(self, parent, theme, on_zone=None):
         super().__init__(parent)
+        self.on_zone = on_zone
         self.canvas = ClockCanvas(self, theme)
         self.digital = wx.StaticText(self, label='')
         self.datetext = wx.StaticText(self, label='')
-        self.utc_digital = wx.StaticText(self, label='')
-        self.utc_datetext = wx.StaticText(self, label='')
+        self.datetext.SetFont(get_font(10))
+        self.zone = ZoneSwitch(self, theme, self.on_switch)
 
-        for text in (self.datetext, self.utc_datetext):
-            text.SetFont(get_font(10))
-        self.utc_digital.Hide()
-        self.utc_datetext.Hide()
-
+        # the dial on the page's middle as the countdown's ring; one time under it, its zone
+        # picked below it
         sizer = wx.BoxSizer(wx.VERTICAL)
         self.head_gap = sizer.AddSpacer(0)
         sizer.Add(self.canvas, 0, wx.EXPAND)
         self.face_gap = sizer.AddSpacer(0)
         sizer.Add(self.digital, 0, wx.ALIGN_CENTER)
         sizer.Add(self.datetext, 0, wx.ALIGN_CENTER | wx.TOP, DATE_GAP)
-        sizer.Add(self.utc_digital, 0, wx.ALIGN_CENTER | wx.TOP, UTC_GAP)
-        sizer.Add(self.utc_datetext, 0, wx.ALIGN_CENTER | wx.TOP, DATE_GAP)
+        sizer.Add(self.zone, 0, wx.ALIGN_CENTER | wx.TOP, SWITCH_GAP)
         self.SetSizer(sizer)
         self.Bind(wx.EVT_SIZE, self.on_size)
         self.apply_theme(theme)
@@ -213,21 +289,21 @@ class ClockBox(wx.Panel):
         self.update_layout()
         event.Skip()
 
+    def on_switch(self):
+        self.use_utc = self.zone.GetValue() == 'utc'
+        self.tick()
+        if self.on_zone:
+            self.on_zone(self.use_utc)
+
     def measure_block(self, size):
         if size != self.digital_size:
             self.digital_size = size
-            font = get_font(size, bold=True)
-            for text in (self.digital, self.utc_digital):
-                text.SetFont(font)
+            self.digital.SetFont(get_font(size, bold=True))
             dc = wx.MemoryDC(wx.Bitmap(1, 1))
-            dc.SetFont(font)
+            dc.SetFont(get_font(size, bold=True))
             self.digital_lead = dc.GetFontMetrics().internalLeading
-
-        block = self.digital.GetBestSize()[1] + DATE_GAP + self.datetext.GetBestSize()[1]
-        if self.use_utc:
-            block += (UTC_GAP + self.utc_digital.GetBestSize()[1] +
-                      DATE_GAP + self.utc_datetext.GetBestSize()[1])
-        return block
+        return (self.digital.GetBestSize()[1] + DATE_GAP + self.datetext.GetBestSize()[1] +
+                SWITCH_GAP + self.zone.GetMinSize()[1])
 
     def update_layout(self):
         # numeral size follows the diameter and the diameter follows the text height,
@@ -240,19 +316,16 @@ class ClockBox(wx.Panel):
         for _ in range(6):
             block = self.measure_block(size) - self.digital_lead
             floor = max(GAP, self.digital_lead)
+            # as much room above the dial as the block takes under it
             diameter = max(MIN_DIAMETER, min(MAX_DIAL, width - SIDE_GAP * 2,
-                                             height - block - floor * 3))
+                                             height - (block + floor * 2) * 2))
             settled = self.canvas.get_numeral_size(diameter / 2)
             if settled == size:
                 break
             size = settled
 
-        room = height - block - diameter
-        if room < floor * 3:
-            diameter -= -room % 3
-            room = height - block - diameter
-        gap = max(0, min(floor, room // 3))
-        head = gap + max(0, room - gap * 3) // 2
+        gap = max(0, min(floor, (height - diameter - block * 2) // 4))
+        head = max(0, (height - diameter) // 2)
         if self.placed == (diameter, gap, head):
             return
 
@@ -267,18 +340,16 @@ class ClockBox(wx.Panel):
     def apply_theme(self, theme):
         self.SetBackgroundColour(wx.Colour(theme['bg']))
         self.canvas.set_theme(theme)
-        for text in (self.digital, self.utc_digital):
-            text.SetForegroundColour(wx.Colour(theme['text']))
-        for text in (self.datetext, self.utc_datetext):
-            text.SetForegroundColour(wx.Colour(theme['dim']))
+        self.zone.set_theme(theme)
+        self.digital.SetForegroundColour(wx.Colour(theme['text']))
+        self.datetext.SetForegroundColour(wx.Colour(theme['dim']))
         self.Refresh()
 
     def set_options(self, use_24h, use_utc, preset, smooth):
         self.use_24h = use_24h
         self.use_utc = use_utc
         self.canvas.set_preset(preset, smooth)
-        self.utc_digital.Show(use_utc)
-        self.utc_datetext.Show(use_utc)
+        self.zone.SetValue('utc' if use_utc else 'local')
         self.placed = None
         self.update_layout()
         self.tick()
@@ -299,11 +370,10 @@ class ClockBox(wx.Panel):
         local = utc.astimezone()
         offset = local.strftime('%z')
 
-        labels = [(self.digital, self.format_time(local)),
-                  (self.datetext, self.format_date(local, f'UTC{offset[:3]}:{offset[3:]}'))]
-        if self.use_utc:
-            labels += [(self.utc_digital, self.format_time(utc)),
-                       (self.utc_datetext, self.format_date(utc, 'UTC'))]
+        now = utc if self.use_utc else local
+        zone = 'UTC' if self.use_utc else f'UTC{offset[:3]}:{offset[3:]}'
+        labels = [(self.digital, self.format_time(now)),
+                  (self.datetext, self.format_date(now, zone))]
 
         changed = False
         for text, label in labels:
@@ -311,7 +381,7 @@ class ClockBox(wx.Panel):
                 text.SetLabel(label)
                 changed = True
 
-        self.canvas.now = local
+        self.canvas.now = now
         if changed:
             self.Layout()
         if changed or self.canvas.smooth:

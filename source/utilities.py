@@ -62,6 +62,7 @@ THEMES = {
         'numeral': '#e6e9ed',
         'hand': '#e6e9ed',
         'second': '#e5484d',
+        'alert': '#e5484d',
         'text': '#e6e9ed',
         'dim': '#8b929b',
         'accent': '#4c9aff',
@@ -94,6 +95,7 @@ THEMES = {
         'numeral': '#1d2126',
         'hand': '#1d2126',
         'second': '#d93036',
+        'alert': '#d93036',
         'text': '#1d2126',
         'dim': '#6b727c',
         'accent': '#2b6cb0',
@@ -118,6 +120,23 @@ THEMES = {
         'track': '#d5d9df',
     },
 }
+
+
+# buttons on, the rings, the map's marks and the menu; the second hand stays red
+ACCENTS = {
+    'blue': {'dark': ('#4c9aff', '#101215'), 'light': ('#2b6cb0', '#ffffff')},
+    'red': {'dark': ('#ff6b6b', '#101215'), 'light': ('#c53030', '#ffffff')},
+}
+
+
+def apply_accent(name):
+    for theme_name, (accent, on_accent) in ACCENTS.get(name, ACCENTS['blue']).items():
+        theme = THEMES[theme_name]
+        theme['accent'], theme['on_accent'] = accent, on_accent
+        # a key that is running: the control tinged with the accent, not filled with it
+        theme['tint'] = mix(theme['control'], accent, 0.28).GetAsString(wx.C2S_HTML_SYNTAX)
+        # a countdown running out, orange beside a red ring
+        theme['alert'] = theme['warn'] if name == 'red' else theme['second']
 
 
 class WindowRect(ctypes.Structure):

@@ -7,14 +7,18 @@ email: peppy0510@hotmail.com
 '''
 
 
+import math
 import time
 import wx
 
 from controls import RoundButton
+from controls import set_start
 from utilities import MAX_DIAL
+from utilities import ROUND_SIZE
 from utilities import Canvas
 from utilities import TimerCanvas
 from utilities import get_font
+from utilities import mix
 
 
 STEP_SECONDS = 60
@@ -29,8 +33,13 @@ RING_RATIO = 0.38
 RING_PAD = 10
 MAX_RADIUS = (MAX_DIAL - RING_PAD) / 2
 CANVAS_MARGIN = 8
-FIELD_GAP = 8
-BUTTON_TOP_GAP = 14
+# field, time and buttons stacked inside the ring this far apart; DONE sits in the lower gap
+STACK_GAP = 18
+# the field faded toward the page until the mouse is over it or it is being typed in
+FIELD_FADE = 0.6
+# the buttons keep this clear of the ring's inner edge, shrinking to SMALLEST_BUTTON
+RING_CLEARANCE = 10
+SMALLEST_BUTTON = 30
 EDGE_GAP = 14
 
 
@@ -61,13 +70,12 @@ class CountdownCanvas(TimerCanvas):
         self.finished = False
         self.blink = False
         self.time_bottom = None
-        self.stack_space = 0
         self.ring_key = None
         self.ring_bitmap = None
 
     def get_time_colour(self):
         if self.finished:
-            return self.theme['second'] if self.blink else self.theme['dim']
+            return self.theme['alert'] if self.blink else self.theme['dim']
         return self.theme['text']
 
     def get_radius(self, width, height):
@@ -112,7 +120,7 @@ class CountdownCanvas(TimerCanvas):
 
         fraction = self.seconds / self.total if self.total > 0 else 0
         if fraction > 0:
-            colour = theme['second'] if self.seconds <= WARN_SECONDS else theme['accent']
+            colour = theme['alert'] if self.seconds <= WARN_SECONDS else theme['accent']
             gc.SetPen(wx.Pen(wx.Colour(colour), 7))
             path = gc.CreatePath()
             path.AddArc(cx, cy, radius, -1.5707963,
@@ -122,11 +130,12 @@ class CountdownCanvas(TimerCanvas):
         self.time_bottom = self.draw_time(gc, width, height)
 
         if self.finished:
-            size = self.get_time_size(width, height)
+            font = get_font(max(9, int(self.get_time_size(width, height) * 0.34)), bold=True)
+            gc.SetFont(font, wx.Colour(theme['alert']))
+            done_height = gc.GetTextExtent('DONE')[1]
             self.draw_centered_text(gc, 'DONE', cx,
-                                    self.time_bottom + self.stack_space + FIELD_GAP,
-                                    get_font(max(9, int(size * 0.34)), bold=True),
-                                    theme['second'])
+                                    self.time_bottom + (STACK_GAP - done_height) / 2, font,
+                                    theme['alert'])
 
 
 class FieldBox(Canvas):
@@ -146,6 +155,7 @@ class FieldBox(Canvas):
                                  style=wx.TE_PROCESS_ENTER | wx.NO_BORDER | wx.TE_CENTER)
         self.field.SetMaxLength(len('00:00:00'))
         self.field.Bind(wx.EVT_CHAR, self.on_char)
+        self.lit = False
         self.buttons = (self.minus, self.plus)
         self.SetMinSize(wx.Size(self.WIDTH, self.HEIGHT))
         # hidden until the first paint tells where the time text ends
@@ -177,14 +187,37 @@ class FieldBox(Canvas):
         super().set_theme(theme)
         for button in self.buttons:
             button.set_theme(theme)
-        self.field.SetBackgroundColour(wx.Colour(theme['control']))
-        self.field.SetForegroundColour(wx.Colour(theme['text']))
         self.field.SetFont(get_font(10))
+        self.apply_lit()
+
+    def set_lit(self, lit):
+        if lit != self.lit:
+            self.lit = lit
+            self.apply_lit()
+            self.Refresh()
+
+    def apply_lit(self):
+        self.field.SetBackgroundColour(self.get_fill())
+        self.field.SetForegroundColour(wx.Colour(self.theme['text' if self.lit else 'tick']))
+        self.field.Refresh()
+        for button in self.buttons:
+            button.set_tone('ghost' if self.lit else 'faint')
+
+    def get_fill(self):
+        fill = self.theme['control']
+        return wx.Colour(fill) if self.lit else mix(fill, self.theme['bg'], FIELD_FADE)
 
     def draw(self, gc, width, height):
         gc.SetPen(wx.TRANSPARENT_PEN)
-        gc.SetBrush(wx.Brush(wx.Colour(self.theme['control'])))
+        gc.SetBrush(wx.Brush(self.get_fill()))
         gc.DrawRoundedRectangle(0, 0, width, height, height / 2)
+
+
+def place(window, rect):
+    if rect != window.GetRect():
+        window.SetSize(rect)
+    if not window.IsShown():
+        window.Show()
 
 
 class CountdownBox(wx.Panel):
@@ -200,7 +233,6 @@ class CountdownBox(wx.Panel):
         self.canvas = CountdownCanvas(self, theme)
         # a child of the canvas, as a sibling the ring repaint would cover it
         self.fieldbox = FieldBox(self.canvas, theme, self.make_step)
-        self.canvas.stack_space = FIELD_GAP + FieldBox.HEIGHT
         self.field = self.fieldbox.field
         self.field.Bind(wx.EVT_TEXT, lambda event: self.on_field())
         self.field.Bind(wx.EVT_TEXT_ENTER, lambda event: self.drop_focus())
@@ -209,21 +241,18 @@ class CountdownBox(wx.Panel):
         self.canvas.Bind(wx.EVT_LEFT_DOWN, lambda event: self.drop_focus())
         self.Bind(wx.EVT_LEFT_DOWN, lambda event: self.drop_focus())
 
-        self.start_button = RoundButton(self, theme, 'play', self.on_start, tone='primary')
-        self.reset_button = RoundButton(self, theme, 'reset', self.on_reset)
+        # inside the ring under the time, placed as the field is
+        self.start_button = RoundButton(self.canvas, theme, 'play', self.on_start,
+                                        backdrop=theme['bg'])
+        self.reset_button = RoundButton(self.canvas, theme, 'reset', self.on_reset,
+                                        backdrop=theme['bg'])
         self.buttons = (self.start_button, self.reset_button)
-
-        control_row = wx.BoxSizer(wx.HORIZONTAL)
-        control_row.AddStretchSpacer()
-        control_row.Add(self.start_button, 0, wx.LEFT | wx.RIGHT, BUTTON_GAP)
-        control_row.Add(self.reset_button, 0, wx.LEFT | wx.RIGHT, BUTTON_GAP)
-        control_row.AddStretchSpacer()
+        for button in self.buttons:
+            button.Hide()
 
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.AddStretchSpacer()
         sizer.Add(self.canvas, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, CANVAS_MARGIN)
-        sizer.AddSpacer(BUTTON_TOP_GAP)
-        sizer.Add(control_row, 0, wx.EXPAND)
         sizer.AddStretchSpacer()
         self.SetSizer(sizer)
         self.Bind(wx.EVT_SIZE, self.on_size)
@@ -249,9 +278,7 @@ class CountdownBox(wx.Panel):
 
         ring = min(MAX_DIAL,
                    int((width - CANVAS_MARGIN * 2) * RING_RATIO * 2) + RING_PAD)
-        room = (height - EDGE_GAP * 2 - BUTTON_TOP_GAP -
-                self.start_button.GetMinSize()[1])
-        target = max(0, min(ring, room))
+        target = max(0, min(ring, height - EDGE_GAP * 2))
         if self.canvas.GetMinSize()[1] != target:
             self.canvas.SetMinSize(wx.Size(-1, target))
             self.Layout()
@@ -263,6 +290,7 @@ class CountdownBox(wx.Panel):
         self.fieldbox.set_theme(theme)
         for button in self.buttons:
             button.set_theme(theme)
+            button.set_backdrop(theme['bg'])
         self.Refresh()
 
     def make_step(self, delta):
@@ -278,7 +306,7 @@ class CountdownBox(wx.Panel):
     def stop(self):
         self.running = False
         self.finished_at = 0.0
-        self.start_button.set_icon('play')
+        set_start(self.start_button, False)
 
     def on_field(self):
         if self.running:
@@ -311,24 +339,35 @@ class CountdownBox(wx.Panel):
         self.deadline = time.perf_counter() + self.remaining
         self.running = True
         self.finished_at = 0.0
-        self.start_button.set_icon('pause')
+        set_start(self.start_button, True)
 
     def on_reset(self):
         self.drop_focus()
         self.stop()
         self.on_field()
 
-    def place_field(self):
+    def place_controls(self):
+        # the field above the time, the buttons under it; known once a paint placed the time
         bottom = self.canvas.time_bottom
         if bottom is None:
             return
-        width = self.canvas.GetClientSize()[0]
+        width, height = self.canvas.GetClientSize()
+        cx, cy = width / 2, height / 2
+        top = height - bottom
         size = self.fieldbox.GetMinSize()
-        rect = wx.Rect((width - size[0]) // 2, int(bottom) + FIELD_GAP, *size)
-        if rect != self.fieldbox.GetRect():
-            self.fieldbox.SetSize(rect)
-        if not self.fieldbox.IsShown():
-            self.fieldbox.Show()
+        place(self.fieldbox, wx.Rect((width - size[0]) // 2,
+                                     int(top) - STACK_GAP - size[1], *size))
+
+        # as large as the ring's width under the time allows
+        inner = self.canvas.get_radius(width, height) - RING_CLEARANCE
+        y = int(bottom) + STACK_GAP
+        side = ROUND_SIZE
+        while side > SMALLEST_BUTTON and (
+                y + side - cy >= inner or
+                BUTTON_GAP + side > math.sqrt(inner ** 2 - (y + side - cy) ** 2)):
+            side -= 1
+        place(self.start_button, wx.Rect(int(cx - BUTTON_GAP - side), y, side, side))
+        place(self.reset_button, wx.Rect(int(cx + BUTTON_GAP), y, side, side))
 
     def tick(self):
         if self.running:
@@ -336,7 +375,7 @@ class CountdownBox(wx.Panel):
             if self.remaining <= 0:
                 self.running = False
                 self.finished_at = time.perf_counter()
-                self.start_button.set_icon('play')
+                set_start(self.start_button, False)
                 wx.Bell()
 
         canvas = self.canvas
@@ -345,7 +384,10 @@ class CountdownBox(wx.Panel):
             elapsed = time.perf_counter() - self.finished_at
             blink = int(elapsed / BLINK_INTERVAL) % 2 == 0
         state = (self.total, self.remaining, bool(self.finished_at), blink)
-        self.place_field()
+        self.place_controls()
+        box = self.fieldbox
+        box.set_lit(box.GetClientRect().Contains(box.ScreenToClient(wx.GetMousePosition()))
+                    or self.field.HasFocus())
         if state != (canvas.total, canvas.seconds, canvas.finished, canvas.blink):
             canvas.total, canvas.seconds, canvas.finished, canvas.blink = state
             self.refresh_canvas()

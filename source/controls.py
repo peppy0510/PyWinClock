@@ -99,12 +99,20 @@ class Pressable(Canvas):
         self.set_hovered(False)
 
 
+def set_start(button, running):
+    # a start button tinged only while it runs
+    button.set_icon('pause' if running else 'play')
+    button.set_tone('tint' if running else 'plain')
+
+
 class RoundButton(Pressable):
 
     TONES = {
         'plain': ('control', 'text'),
         'primary': ('accent', '#ffffff'),
         'ghost': (None, 'dim'),
+        'faint': (None, 'tick'),
+        'tint': ('tint', 'text'),
     }
 
     CORNER = 9
@@ -184,11 +192,19 @@ class RoundButton(Pressable):
             gc.FillPath(path)
 
         elif self.icon == 'pause':
-            for sign in (-1, 1):
-                gc.DrawRectangle(cx + sign * radius * 0.24 - radius * 0.08,
-                                 cy - radius * 0.38, radius * 0.16, radius * 0.76)
+            # whole pixels (a blurred edge read thin), as odd or even as the button so the
+            # margins match
+            bar, gap = round(radius * 0.22), round(radius * 0.15)
+            gap += (round(cx * 2) - bar * 2 - gap) % 2
+            height = round(radius * 0.76)
+            height += (round(cy * 2) - height) % 2
+            left, top = cx - (bar * 2 + gap) / 2, cy - height / 2
+            for x in (left, left + bar + gap):
+                gc.DrawRectangle(x, top, bar, height)
 
         elif self.icon == 'flag':
+            # its pole's weight read left of centre (ink 2.4 px left at 46 px)
+            cx += radius * 0.09
             gc.SetPen(wx.Pen(colour, max(2, int(radius * 0.11))))
             gc.StrokeLine(cx - radius * 0.28, cy - radius * 0.44,
                           cx - radius * 0.28, cy + radius * 0.46)
