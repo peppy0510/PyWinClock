@@ -127,6 +127,15 @@ def render(window):
     return bitmap
 
 
+def leave(window):
+    # the slide takes the mouse, so nothing under it would hear the pointer go
+    for child in window.GetChildren():
+        leave(child)
+    event = wx.MouseEvent(wx.wxEVT_LEAVE_WINDOW)
+    event.SetEventObject(window)
+    window.GetEventHandler().ProcessEvent(event)
+
+
 def ease_out(share):
     return 1.0 - (1.0 - share) ** 3
 
@@ -311,6 +320,9 @@ class Carousel(wx.EventFilter):
         self.dragging = True
         self.origin = origin
         self.motion = [(time.monotonic(), wx.GetMousePosition().x)]
+        page = self.book.GetCurrentPage()
+        leave(page)
+        page.Update()
         self.show_slide((-1, 0, 1))
         self.slide.CaptureMouse()
         self.on_drag(None)
