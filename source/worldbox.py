@@ -561,9 +561,9 @@ class CityList(Canvas):
         cx, cy = rect.x + rect.width / 2, rect.y + rect.height / 2
         colour = theme['dim']
         if row['fixed']:
-            draw_glyph(gc, 'home', cx, cy, 11, colour, 1.5)
+            draw_glyph(gc, 'home', cx, cy, 12.5, colour, 1.6)
         else:
-            self.draw_close(gc, cx, cy, colour, 3.8)
+            self.draw_close(gc, cx, cy, colour, 3.4)
 
     def draw_phase(self, gc, cx, cy, daylight, fill):
         theme = self.theme

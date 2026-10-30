@@ -217,7 +217,7 @@ class RoundButton(Pressable):
             gc.FillPath(path)
 
         elif self.icon in ('plus', 'minus'):
-            arm = radius * 0.44
+            arm = radius * 0.39
             gc.SetPen(wx.Pen(colour, max(1, round(radius * 0.13))))
             gc.StrokeLine(cx - arm, cy, cx + arm, cy)
             if self.icon == 'plus':
