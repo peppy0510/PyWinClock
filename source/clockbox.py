@@ -274,8 +274,7 @@ class ClockBox(wx.Panel):
         self.datetext.SetFont(get_font(10))
         self.zone = ZoneSwitch(self, theme, self.on_switch)
 
-        # the dial on the page's middle as the countdown's ring; one time under it, its zone
-        # picked below it
+        # the dial, one time under it and its zone picked below, centred on the page as one
         sizer = wx.BoxSizer(wx.VERTICAL)
         self.head_gap = sizer.AddSpacer(0)
         sizer.Add(self.canvas, 0, wx.EXPAND)
@@ -320,16 +319,15 @@ class ClockBox(wx.Panel):
         for _ in range(6):
             block = self.measure_block(size) - self.digital_lead
             floor = max(GAP, self.digital_lead)
-            # as much room above the dial as the block takes under it
             diameter = max(MIN_DIAMETER, min(MAX_DIAL, width - SIDE_GAP * 2,
-                                             height - (block + floor * 2) * 2))
+                                             height - block - floor * 3))
             settled = self.canvas.get_numeral_size(diameter / 2)
             if settled == size:
                 break
             size = settled
 
-        gap = max(0, min(floor, (height - diameter - block * 2) // 4))
-        head = max(0, (height - diameter) // 2)
+        gap = max(0, min(floor, (height - diameter - block) // 3))
+        head = max(0, (height - diameter - gap - block) // 2)
         if self.placed == (diameter, gap, head):
             return
 
