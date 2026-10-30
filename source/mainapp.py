@@ -315,7 +315,8 @@ class MainFrame(wx.Frame):
             return
         self.pacer.pending = False
         page = self.book.GetCurrentPage()
-        if page is not None:
+        # covered by the slide: its repaint cost the slide a frame now and then
+        if page is not None and not self.carousel.is_sliding():
             page.tick()
         running = getattr(page, 'running', False)
         self.pacer.interval = (RUNNING_INTERVAL if running else TICK_INTERVAL) / 1000

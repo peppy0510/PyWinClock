@@ -8,6 +8,7 @@ email: peppy0510@hotmail.com
 
 
 import ctypes
+import threading
 import time
 import wx
 
@@ -20,7 +21,8 @@ from utilities import paint_now
 DRAG_START = 12
 FLING_SPEED = 900.0
 SLIDE_SECONDS = 0.2
-FRAME_MS = 15
+SLIDE_LONGEST = 0.35
+FRAME_MS = 8
 DOTS_HEIGHT = 22
 DOTS_RAISE = 3
 DOT = 6
@@ -140,6 +142,34 @@ def ease_out(share):
     return 1.0 - (1.0 - share) ** 3
 
 
+class FramePacer(threading.Thread):
+
+    '''wx.Timer rounds to 15.6 ms ticks: frames 10 and 20 ms apart by turns, now and then
+    a 60 Hz screen frame without a move; DwmFlush skipped every other screen frame.
+    Twice a screen frame instead, each placed by the clock'''
+
+    def __init__(self, on_frame):
+        super().__init__(name='slide-pacer', daemon=True)
+        self.on_frame = on_frame
+        self.running = True
+        self.pending = False
+
+    def run(self):
+        while self.running:
+            time.sleep(FRAME_MS / 1000)
+            if self.running and not self.pending:
+                self.pending = True
+                try:
+                    wx.CallAfter(self.beat)
+                except Exception:
+                    return
+
+    def beat(self):
+        self.pending = False
+        if self.running:
+            self.on_frame(None)
+
+
 class Slide(Canvas):
 
     '''the pages' pictures side by side over the book while a page is dragged or slides in'''
@@ -150,9 +180,14 @@ class Slide(Canvas):
         self.offset = 0.0
         self.Hide()
 
-    def draw(self, gc, width, height):
+    def on_paint(self, event):
+        # GDI blits: GraphicsContext.DrawBitmap converts all three pictures' pixels a frame
+        dc = wx.AutoBufferedPaintDC(self)
+        width, height = self.GetClientSize()
+        dc.SetBackground(wx.Brush(wx.Colour(self.theme['bg'])))
+        dc.Clear()
         for step, bitmap in self.pictures.items():
-            gc.DrawBitmap(bitmap, round(self.offset + step * width), 0, width, height)
+            dc.DrawBitmap(bitmap, round(self.offset + step * width), 0)
 
 
 class PageDots(Canvas):
@@ -229,8 +264,7 @@ class Carousel(wx.EventFilter):
         self.target = None
         self.animation = None
         self.drawn = set()
-        self.timer = wx.Timer(self.slide)
-        self.slide.Bind(wx.EVT_TIMER, self.on_frame, self.timer)
+        self.pacer = None
         self.slide.Bind(wx.EVT_MOTION, self.on_drag)
         self.slide.Bind(wx.EVT_LEFT_UP, self.on_release)
         self.slide.Bind(wx.EVT_MOUSE_CAPTURE_LOST, lambda event: self.on_release(None))
@@ -238,7 +272,7 @@ class Carousel(wx.EventFilter):
 
     def close(self):
         wx.EvtHandler.RemoveFilter(self)
-        self.timer.Stop()
+        self.stop_pacer()
 
     def set_theme(self, theme):
         self.theme = theme
@@ -247,6 +281,14 @@ class Carousel(wx.EventFilter):
 
     def current(self):
         return self.book.GetSelection()
+
+    def is_sliding(self):
+        return self.dragging or self.animation is not None
+
+    def stop_pacer(self):
+        if self.pacer is not None:
+            self.pacer.running = False
+            self.pacer = None
 
     def is_page(self, window):
         # not a text field: a drag there selects text
@@ -356,7 +398,13 @@ class Carousel(wx.EventFilter):
         if step:
             # taken as the drag began, a clock in it would jump to the time when it lands
             self.slide.pictures[step] = self.take(self.get_neighbour(step))
-        self.animate(offset, -step * width, step)
+        end = -step * width
+        # ease_out sets off at 3x its mean speed: as fast as the hand, not a kick past it
+        toward = speed if end > offset else -speed
+        seconds = SLIDE_SECONDS
+        if toward > 0:
+            seconds = min(max(3.0 * abs(end - offset) / toward, SLIDE_SECONDS), SLIDE_LONGEST)
+        self.animate(offset, end, step, seconds=seconds)
 
     def go_to(self, index):
         current = self.current()
@@ -371,23 +419,25 @@ class Carousel(wx.EventFilter):
         self.slide.Raise()
         self.animate(0.0, -step * rect.width, step, index)
 
-    def animate(self, start, end, step, index=None):
+    def animate(self, start, end, step, index=None, seconds=SLIDE_SECONDS):
         self.target = self.get_neighbour(step) if index is None else index
-        self.animation = (time.monotonic(), start, end)
-        self.timer.Start(FRAME_MS)
+        self.animation = (time.monotonic(), start, end, seconds)
+        self.stop_pacer()
+        self.pacer = FramePacer(self.on_frame)
+        self.pacer.start()
         self.on_frame(None)
 
     def on_frame(self, event):
         if self.animation is None:
             return
-        began, start, end = self.animation
-        share = min((time.monotonic() - began) / SLIDE_SECONDS, 1.0)
+        began, start, end, seconds = self.animation
+        share = min((time.monotonic() - began) / seconds, 1.0)
         self.slide.offset = start + (end - start) * ease_out(share)
         self.slide.Refresh()
         self.slide.Update()
         if share < 1.0:
             return
-        self.timer.Stop()
+        self.stop_pacer()
         self.animation = None
         # frozen until the new page is whole: a page shown or uncovered erases first
         self.frame.Freeze()
@@ -397,6 +447,11 @@ class Carousel(wx.EventFilter):
             if self.target != self.current():
                 self.book.SetSelection(self.target)
                 self.on_show(self.target)
+            else:
+                # its ticks were skipped while covered
+                tick = getattr(self.book.GetCurrentPage(), 'tick', None)
+                if tick is not None:
+                    tick()
         finally:
             self.frame.Thaw()
         paint_now(self.frame)
