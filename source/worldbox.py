@@ -36,6 +36,12 @@ LOCAL = 'Local time'
 LAT_TOP = 78.0
 LAT_BOTTOM = -56.0
 ASPECT = 360.0 / (LAT_TOP - LAT_BOTTOM)
+# the International Date Line, simplified (Bering Strait, Aleutians, Kiribati, Samoa, Tonga);
+# its eastern bends kept past 180 so it runs as one line
+DATE_LINE = ((180, 90), (180, 72), (191, 68), (191, 65.5), (172.5, 53), (180, 48), (180, 5),
+             (210, 5), (210, -10), (190, -10), (190, -15), (187.5, -17.5), (187.5, -45),
+             (180, -51), (180, -90))
+LINE_ALPHA = 150
 
 ROW_HEIGHT = 52
 ROW_GAP = 0
@@ -142,6 +148,7 @@ class WorldMap(Canvas):
         super().__init__(parent, theme)
         self.land = get_land()
         self.pins = []
+        self.utc_row = -1
         self.moment = datetime.now(timezone.utc)
         self.base = None
         self.base_key = None
@@ -153,8 +160,9 @@ class WorldMap(Canvas):
         self.Bind(wx.EVT_LEAVE_WINDOW, self.on_leave)
         self.Bind(wx.EVT_LEFT_DCLICK, self.on_dclick)
 
-    def set_pins(self, pins):
+    def set_pins(self, pins, utc_row=-1):
         self.pins = pins
+        self.utc_row = utc_row
         self.Refresh()
 
     def set_active(self, index):
@@ -199,6 +207,8 @@ class WorldMap(Canvas):
         if width <= 0 or height <= 0:
             return
         gc.DrawBitmap(self.get_base(width, height), 0, 0, width, height)
+        if self.utc_row >= 0 and self.utc_row in (self.hovered, self.active):
+            self.draw_utc(gc, width, height, True)
 
         lit = [pin for pin in self.pins if pin[2] in (self.hovered, self.active)]
         for longitude, latitude, row in [pin for pin in self.pins if pin not in lit] + lit:
@@ -221,7 +231,7 @@ class WorldMap(Canvas):
     def get_base(self, width, height):
         theme = self.theme
         key = (width, height, self.moment, theme['map_sea'], theme['map_land'],
-               theme['map_night'], theme['map_night_alpha'])
+               theme['map_night'], theme['map_night_alpha'], theme['tick'])
         if self.base_key != key:
             bitmap = wx.Bitmap(width, height, 24)
             dc = wx.MemoryDC(bitmap)
@@ -246,10 +256,37 @@ class WorldMap(Canvas):
                 gc.FillPath(path)
 
             gc.DrawBitmap(self.make_night(width, height), 0, 0, width, height)
+            self.draw_lines(gc, width, height)
             del gc
             dc.SelectObject(wx.NullBitmap)
             self.base_key, self.base = key, bitmap
         return self.base
+
+    def draw_lines(self, gc, width, height):
+        # the date line, once more a world to the left for the bends past 180
+        tone = wx.Colour(self.theme['tick'])
+        gc.SetPen(wx.Pen(wx.Colour(tone.Red(), tone.Green(), tone.Blue(), LINE_ALPHA), 1,
+                         wx.PENSTYLE_SHORT_DASH))
+        for shift in (0, -360):
+            path = gc.CreatePath()
+            for index, (longitude, latitude) in enumerate(DATE_LINE):
+                x, y = self.project(longitude + shift, latitude, width, height)
+                if index:
+                    path.AddLineToPoint(x, y)
+                else:
+                    path.MoveToPoint(x, y)
+            gc.StrokePath(path)
+        self.draw_utc(gc, width, height, False)
+
+    def draw_utc(self, gc, width, height, lit):
+        x = round(self.project(0, 0, width, height)[0]) + 0.5
+        if lit:
+            gc.SetPen(wx.Pen(wx.Colour(self.theme['accent']), 1))
+        else:
+            tone = wx.Colour(self.theme['tick'])
+            gc.SetPen(wx.Pen(wx.Colour(tone.Red(), tone.Green(), tone.Blue(), LINE_ALPHA), 1,
+                             wx.PENSTYLE_DOT))
+        gc.StrokeLine(x, 0, x, height)
 
     def make_night(self, width, height):
         columns = self.GRID
@@ -524,9 +561,9 @@ class CityList(Canvas):
         cx, cy = rect.x + rect.width / 2, rect.y + rect.height / 2
         colour = theme['text'] if index == self.on_button else theme['dim']
         if row['fixed']:
-            draw_glyph(gc, 'home', cx, cy, 13, colour, 1.6)
+            draw_glyph(gc, 'home', cx, cy, 11, colour, 1.5)
         else:
-            self.draw_close(gc, cx, cy, colour, 4.5)
+            self.draw_close(gc, cx, cy, colour, 3.8)
 
     def draw_phase(self, gc, cx, cy, daylight, fill):
         theme = self.theme
@@ -535,17 +572,17 @@ class CityList(Canvas):
         gc.SetBrush(wx.Brush(colour))
 
         if daylight:
-            gc.DrawEllipse(cx - 5, cy - 5, 10, 10)
+            gc.DrawEllipse(cx - 4.25, cy - 4.25, 8.5, 8.5)
             gc.SetPen(wx.Pen(colour, 1))
             for step in range(8):
                 angle = math.radians(step * 45)
                 dx, dy = math.cos(angle), math.sin(angle)
-                gc.StrokeLine(cx + dx * 7.5, cy + dy * 7.5, cx + dx * 10, cy + dy * 10)
+                gc.StrokeLine(cx + dx * 6.4, cy + dy * 6.4, cx + dx * 8.5, cy + dy * 8.5)
             return
 
-        gc.DrawEllipse(cx - 8, cy - 8, 16, 16)
+        gc.DrawEllipse(cx - 6.8, cy - 6.8, 13.6, 13.6)
         gc.SetBrush(wx.Brush(wx.Colour(fill)))
-        gc.DrawEllipse(cx - 4.5, cy - 9.5, 15, 15)
+        gc.DrawEllipse(cx - 3.8, cy - 8.1, 12.75, 12.75)
 
     def draw_close(self, gc, cx, cy, colour, size=5):
         gc.SetPen(wx.Pen(wx.Colour(colour), 2))
@@ -888,9 +925,9 @@ class WorldBox(wx.Panel):
             self.refresh_rows()
 
     def get_time_text(self, moment):
-        # %#H and %#I drop the leading zero (MSVC strftime)
+        # %#I drops the leading zero (MSVC strftime), as the clock page's 12-hour time
         if self.use24h:
-            return moment.strftime('%#H:%M')
+            return moment.strftime('%H:%M')
         return moment.strftime('%#I:%M %p').lower()
 
     def get_day_text(self, moment, local):
@@ -924,6 +961,7 @@ class WorldBox(wx.Panel):
 
         rows = []
         pins = []
+        utc_row = -1
         for name in self.names:
             _, zone, latitude, longitude = CITY_BY_NAME[name]
             moment = now.astimezone(ZoneInfo(zone))
@@ -937,6 +975,8 @@ class WorldBox(wx.Panel):
             })
             if zone != 'UTC':
                 pins.append((longitude, latitude, len(rows) - 1))
+            else:
+                utc_row = len(rows) - 1
 
         daylight = 6 <= local.hour < 18
         label = LOCAL
@@ -960,7 +1000,7 @@ class WorldBox(wx.Panel):
         })
 
         self.map.moment = now
-        self.map.set_pins(pins)
+        self.map.set_pins(pins, utc_row)
         self.list.set_rows(rows)
         self.fit_column()
 

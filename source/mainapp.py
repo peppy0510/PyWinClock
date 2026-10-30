@@ -36,6 +36,8 @@ from utilities import save_settings
 
 
 TICK_INTERVAL = 50
+# a running timer's hundredths: at 50 ms they stepped by 5, the last digit only ever two
+RUNNING_INTERVAL = 16
 DEFAULT_SIZE = (440, 640)
 THEME_POLL = 2.0
 
@@ -58,12 +60,12 @@ class Pacer(threading.Thread):
         self.frame = frame
         self.running = True
         self.pending = False
+        self.interval = TICK_INTERVAL / 1000
 
     def run(self):
-        interval = TICK_INTERVAL / 1000
         target = time.perf_counter()
         while self.running:
-            target += interval
+            target += self.interval
             delay = target - time.perf_counter()
             if delay > 0:
                 time.sleep(delay)
@@ -303,6 +305,8 @@ class MainFrame(wx.Frame):
         page = self.book.GetCurrentPage()
         if page is not None:
             page.tick()
+        running = getattr(page, 'running', False)
+        self.pacer.interval = (RUNNING_INTERVAL if running else TICK_INTERVAL) / 1000
 
         if (self.settingsbox.theme_choice.GetValue() == 'auto' and
                 time.monotonic() - self.theme_checked >= THEME_POLL):

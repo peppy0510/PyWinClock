@@ -212,9 +212,9 @@ class RoundButton(Pressable):
             # measured: its ink a pixel right of and half a pixel under the plus's
             cx -= 1
             cy -= 0.5
-            length = radius * 0.60
-            half = radius * 0.15
-            neck = radius * 0.26
+            length = radius * 0.52
+            half = radius * 0.13
+            neck = radius * 0.23
             dx, dy = math.cos(math.radians(-45)), math.sin(math.radians(-45))
             px, py = -dy, dx
             tip = (cx - dx * length, cy - dy * length)
