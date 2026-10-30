@@ -47,6 +47,9 @@ def get_button_width(text):
 def draw_button(gc, theme, rect, text, state='plain', tone=None):
     if state == 'lit':
         fill, edge, colour = theme['accent'], theme['accent'], theme['on_accent']
+    elif state == 'tint':
+        # picked, not switched on: tinged with the accent
+        fill, edge, colour = theme['tint'], theme['tint'], theme['text']
     else:
         fill = {'down': theme['control_down'], 'hover': theme['control_hover']}.get(
             state, theme['control'])

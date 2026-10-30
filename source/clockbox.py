@@ -245,7 +245,7 @@ class ZoneSwitch(Pressable):
     def draw(self, gc, width, height):
         for index, (value, name) in enumerate(self.OPTIONS):
             if value == self.value:
-                state = 'lit'
+                state = 'tint'
             elif self.pressed and index == self.down_index and index == self.marked:
                 state = 'down'
             elif index == self.marked:
