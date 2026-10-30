@@ -207,8 +207,8 @@ class WorldMap(Canvas):
         if width <= 0 or height <= 0:
             return
         gc.DrawBitmap(self.get_base(width, height), 0, 0, width, height)
-        if self.utc_row >= 0 and self.utc_row in (self.hovered, self.active):
-            self.draw_utc(gc, width, height, True)
+        if self.utc_row >= 0:
+            self.draw_utc(gc, width, height, self.utc_row in (self.hovered, self.active))
 
         lit = [pin for pin in self.pins if pin[2] in (self.hovered, self.active)]
         for longitude, latitude, row in [pin for pin in self.pins if pin not in lit] + lit:
@@ -276,7 +276,6 @@ class WorldMap(Canvas):
                 else:
                     path.MoveToPoint(x, y)
             gc.StrokePath(path)
-        self.draw_utc(gc, width, height, False)
 
     def draw_utc(self, gc, width, height, lit):
         x = round(self.project(0, 0, width, height)[0]) + 0.5
@@ -325,6 +324,15 @@ class WorldMap(Canvas):
         gc.DrawEllipse(x - edge, y - edge, edge * 2, edge * 2)
         gc.SetBrush(wx.Brush(wx.Colour(theme['accent'] if active else theme['pin'])))
         gc.DrawEllipse(x - radius, y - radius, radius * 2, radius * 2)
+
+
+def draw_scrollbar(gc, theme, width, height, total, scroll, fade):
+    span = max(20, height * height / total)
+    top = (height - span) * min(1.0, max(0.0, scroll / (total - height)))
+    rim = wx.Colour(theme['rim'])
+    gc.SetPen(wx.TRANSPARENT_PEN)
+    gc.SetBrush(wx.Brush(wx.Colour(rim.Red(), rim.Green(), rim.Blue(), round(255 * fade))))
+    gc.DrawRoundedRectangle(width - 6, top, 3, span, 1.5)
 
 
 class CityList(Canvas):
@@ -519,14 +527,8 @@ class CityList(Canvas):
         return max(0, len(self.rows) * ROW_STRIDE - ROW_GAP)
 
     def draw_scrollbar(self, gc, width, height):
-        total = self.get_content_height()
-        span = max(20, height * height / total)
-        top = (height - span) * min(1.0, max(0.0, self.scroll / (total - height)))
-        rim = wx.Colour(self.theme['rim'])
-        gc.SetPen(wx.TRANSPARENT_PEN)
-        gc.SetBrush(wx.Brush(wx.Colour(rim.Red(), rim.Green(), rim.Blue(),
-                                       round(255 * self.fade))))
-        gc.DrawRoundedRectangle(width - 6, top, 3, span, 1.5)
+        draw_scrollbar(gc, self.theme, width, height, self.get_content_height(),
+                       self.scroll, self.fade)
 
     def draw_row(self, gc, row, index, width, top):
         theme = self.theme
@@ -688,6 +690,10 @@ class CityPicker(Canvas):
         self.rows = []
         self.offset = 0
         self.hovered = -1
+        self.fade = 0.0
+        self.hold_until = 0.0
+        self.timer = wx.Timer(self)
+        self.Bind(wx.EVT_TIMER, self.on_animate)
         self.Bind(wx.EVT_MOUSEWHEEL, self.on_wheel)
         self.Bind(wx.EVT_MOTION, self.on_motion)
         self.Bind(wx.EVT_LEAVE_WINDOW, self.on_leave)
@@ -697,6 +703,21 @@ class CityPicker(Canvas):
     def set_rows(self, rows):
         self.rows = rows
         self.offset = 0
+        self.Refresh()
+
+    def show_scrollbar(self):
+        self.fade = 1.0
+        self.hold_until = time.monotonic() + CityList.HOLD
+        if not self.timer.IsRunning():
+            self.timer.Start(CityList.STEP)
+        self.Refresh()
+
+    def on_animate(self, event):
+        if time.monotonic() >= self.hold_until:
+            self.fade -= self.fade * CityList.FADE_EASING
+            if self.fade < 0.02:
+                self.fade = 0.0
+                self.timer.Stop()
         self.Refresh()
 
     def on_size(self, event):
@@ -720,7 +741,7 @@ class CityPicker(Canvas):
         offset = min(limit, max(0, self.offset - (2 if event.GetWheelRotation() > 0 else -2)))
         if offset != self.offset:
             self.offset = offset
-            self.Refresh()
+            self.show_scrollbar()
 
     def on_motion(self, event):
         index = self.hit_test(event.GetY())
@@ -762,6 +783,9 @@ class CityPicker(Canvas):
                            theme['dim'] if row['taken'] else None)
 
         draw_card_rim(gc, theme['rim'], 0, 0, width, view)
+        if self.fade and len(self.rows) * self.ROW > view:
+            draw_scrollbar(gc, theme, width, view, len(self.rows) * self.ROW,
+                           self.offset * self.ROW, self.fade)
 
 
 class WorldBox(wx.Panel):
