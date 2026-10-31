@@ -12,6 +12,7 @@ import wx
 
 from utilities import ROUND_SIZE
 from utilities import Canvas
+from utilities import fill_rounded
 from utilities import shade
 
 
@@ -49,7 +50,7 @@ class Pressable(Canvas):
         self.SetCursor(wx.Cursor(wx.CURSOR_HAND if self.hovered else wx.CURSOR_ARROW))
 
     def on_track(self, event):
-        inside = self.hits(event.GetPosition())
+        inside = self.hits(self.locate(event.GetPosition()))
         self.set_hovered(inside)
         if self.holding and inside != self.pressed:
             self.pressed = inside
@@ -57,7 +58,7 @@ class Pressable(Canvas):
         event.Skip()
 
     def on_down(self, event):
-        if not self.hits(event.GetPosition()):
+        if not self.hits(self.locate(event.GetPosition())):
             event.Skip()
             return
         self.holding = True
@@ -73,7 +74,7 @@ class Pressable(Canvas):
         if self.HasCapture():
             self.ReleaseMouse()
         # keep the event position, re-reading the cursor can disagree with the event
-        self.up_position = event.GetPosition()
+        self.up_position = self.locate(event.GetPosition())
         clicked = self.holding and self.hits(self.up_position)
         self.holding = False
         self.pressed = False
@@ -87,7 +88,7 @@ class Pressable(Canvas):
         self.Refresh()
 
     def on_enter(self, event):
-        self.set_hovered(self.hits(event.GetPosition()))
+        self.set_hovered(self.hits(self.locate(event.GetPosition())))
 
     def on_leave(self, event):
         if self.holding:
@@ -158,8 +159,8 @@ class RoundButton(Pressable):
         gc.SetPen(wx.TRANSPARENT_PEN)
         gc.SetBrush(wx.Brush(self.get_fill(key)))
         if self.square:
-            gc.DrawRoundedRectangle(cx - radius, cy - radius,
-                                    radius * 2, radius * 2, self.CORNER)
+            fill_rounded(gc, self.get_fill(key), cx - radius, cy - radius,
+                         radius * 2, radius * 2, self.CORNER)
         else:
             gc.DrawEllipse(cx - radius, cy - radius, radius * 2, radius * 2)
 

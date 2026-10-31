@@ -123,6 +123,55 @@ def draw_home(gc, cx, cy, size, colour, width):
     gc.DrawRectangle(cx - body, eaves, body * 2, base - eaves)
 
 
+def get_meeting_angle(centre, radius, other, other_radius, upper=True):
+    # where two circles cross, as an angle on the first; the upper crossing by default
+    dx, dy = other[0] - centre[0], other[1] - centre[1]
+    span = math.hypot(dx, dy)
+    along = (radius ** 2 - other_radius ** 2 + span ** 2) / (2 * span)
+    turn = math.acos(max(-1.0, min(1.0, along / radius)))
+    base = math.atan2(dy, dx)
+    first, second = base - turn, base + turn
+    pick = first if math.sin(first) < math.sin(second) else second
+    if not upper:
+        pick = second if pick == first else first
+    return pick
+
+
+def add_cloud(path, cx, cy, size):
+    # three bumps on a flat base, the outline only where no other bump covers it
+    bumps = (((cx - size * 0.22, cy + size * 0.06), size * 0.16),
+             ((cx + size * 0.02, cy - size * 0.04), size * 0.24),
+             ((cx + size * 0.26, cy + size * 0.10), size * 0.12))
+    base = cy + size * 0.22
+    (left, r1), (top, r2), (right, r3) = bumps
+    path.MoveToPoint(right[0], base)
+    path.AddLineToPoint(left[0], base)
+    path.AddArc(left[0], left[1], r1, math.pi / 2, get_meeting_angle(left, r1, top, r2), True)
+    path.AddArc(top[0], top[1], r2, get_meeting_angle(top, r2, left, r1),
+                get_meeting_angle(top, r2, right, r3), True)
+    path.AddArc(right[0], right[1], r3, get_meeting_angle(right, r3, top, r2),
+                math.pi / 2, True)
+    path.CloseSubpath()
+
+
+def draw_weather(gc, cx, cy, size, colour, width):
+    # a sun behind a cloud: its rays only above and to the right
+    sun = (cx + size * 0.14, cy - size * 0.16)
+    radius = size * 0.15
+    # outlines only, so the sun stops where the cloud would cover it
+    arc = gc.CreatePath()
+    arc.AddArc(sun[0], sun[1], radius, -math.pi * 0.95, math.pi * 0.2, True)
+    gc.StrokePath(arc)
+    for step in (-3, -2, -1, 0):
+        angle = math.radians(step * 45)
+        dx, dy = math.cos(angle), math.sin(angle)
+        gc.StrokeLine(sun[0] + dx * size * 0.24, sun[1] + dy * size * 0.24,
+                      sun[0] + dx * size * 0.32, sun[1] + dy * size * 0.32)
+    path = gc.CreatePath()
+    add_cloud(path, cx - size * 0.06, cy + size * 0.10, size * 0.92)
+    gc.StrokePath(path)
+
+
 def draw_close(gc, cx, cy, size, colour, width):
     arm = size * 0.36
     gc.StrokeLine(cx - arm, cy - arm, cx + arm, cy + arm)
@@ -132,6 +181,7 @@ def draw_close(gc, cx, cy, size, colour, width):
 HANDLERS = {
     'clock': draw_clock,
     'globe': draw_globe,
+    'weather': draw_weather,
     'stopwatch': draw_stopwatch,
     'countdown': draw_countdown,
     'settings': draw_settings,

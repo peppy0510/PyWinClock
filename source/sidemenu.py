@@ -11,6 +11,7 @@ import wx
 
 from icons import draw_glyph
 from utilities import Canvas
+from utilities import fill_rounded
 from utilities import get_font
 from utilities import mix
 
@@ -199,9 +200,7 @@ class SideMenu(Canvas):
             fill = None
 
         if fill:
-            gc.SetPen(wx.TRANSPARENT_PEN)
-            gc.SetBrush(wx.Brush(wx.Colour(fill)))
-            gc.DrawRoundedRectangle(rect.x, rect.y, rect.width, rect.height, self.RADIUS)
+            fill_rounded(gc, fill, rect.x, rect.y, rect.width, rect.height, self.RADIUS)
 
         if active:
             bar = rect.height * 0.40

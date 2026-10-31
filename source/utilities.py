@@ -33,6 +33,18 @@ MAX_DIAL = 280
 # the countdown text size at MAX_DIAL, recompute when MAX_DIAL changes
 MAX_TIME_SIZE = 27
 
+# the carousel's pages laid out for the window's first size, and scaled as one past it:
+# as wide as the window allows, as tall as the tallest page still fits, to this far
+PAGE_COLUMN = 462
+PAGE_MARGIN = 14
+PAGE_TALLEST = 560
+LARGEST_SCALE = 640 / PAGE_COLUMN
+
+
+def get_page_scale(width, height):
+    wide = (width - PAGE_MARGIN * 2) / PAGE_COLUMN
+    return max(1.0, min(wide, height / PAGE_TALLEST, LARGEST_SCALE))
+
 TITLEBAR_HEIGHT = 32
 CAPTION_WIDTH = 46
 
@@ -291,14 +303,119 @@ def shade(colour, factor):
                      min(255, int(base.Blue() * factor)))
 
 
-def draw_card_rim(gc, colour, x, y, width, height, radius=CARD_RADIUS):
-    # a 1px pen renders 2px on the left and top, fill the ring between two outlines instead
-    path = gc.CreatePath()
-    path.AddRoundedRectangle(x, y, width, height, radius)
-    path.AddRoundedRectangle(x + 1, y + 1, width - 2, height - 2, max(0, radius - 1))
+CORNERS = {}
+CORNER_SAMPLES = 8
+
+
+def get_coverage(radius, px, py):
+    # how much of pixel (px, py) a top-left corner's circle, centred (radius, radius), covers
+    samples = CORNER_SAMPLES
+    inside = sum((radius - px - (sx + 0.5) / samples) ** 2 +
+                 (radius - py - (sy + 0.5) / samples) ** 2 <= radius * radius
+                 for sy in range(samples) for sx in range(samples))
+    return inside / samples ** 2
+
+
+def get_corners(radius, colour, kind='fill'):
+    '''four corner pictures, radius px square, their alpha the circle's exact coverage:
+    'fill' the inside, 'outside' what lies beyond the arc, 'rim' a 1px ring along it.
+    GDI+ draws arcs this small as a few steps'''
+    tone = wx.Colour(colour)
+    key = (radius, tone.GetRGBA(), kind)
+    if key not in CORNERS:
+        image = wx.Image(radius, radius)
+        image.InitAlpha()
+        for py in range(radius):
+            for px in range(radius):
+                share = get_coverage(radius, px, py)
+                if kind == 'outside':
+                    share = 1.0 - share
+                elif kind == 'rim':
+                    # the inner outline, 1px in, keeps the same centre with a radius 1 less
+                    inner = get_coverage(radius - 1, px - 1, py - 1) \
+                        if radius > 1 and px >= 1 and py >= 1 else 0.0
+                    share -= inner
+                image.SetRGB(px, py, tone.Red(), tone.Green(), tone.Blue())
+                image.SetAlpha(px, py, round(tone.Alpha() * max(0.0, share)))
+        mirrored = image.Mirror(True)
+        CORNERS[key] = [wx.Bitmap(image), wx.Bitmap(mirrored), wx.Bitmap(image.Mirror(False)),
+                        wx.Bitmap(mirrored.Mirror(False))]
+    return CORNERS[key]
+
+
+def get_round_box(x, y, width, height, radius):
+    # whole pixels only: the straight edges stay sharp and meet the corners
+    x, y, width, height = round(x), round(y), round(width), round(height)
+    return x, y, width, height, max(0, min(int(radius), width // 2, height // 2))
+
+
+def enter_device(gc, x, y, width, height, radius):
+    '''the box in screen pixels with the transform set aside, so a scaled page keeps
+    sharp edges and its own corner pictures; leave_device puts the transform back'''
+    matrix = gc.GetTransform()
+    scale, _, _, _, _, _ = matrix.Get()
+    left, top = matrix.TransformPoint(x, y)
+    right, bottom = matrix.TransformPoint(x + width, y + height)
+    gc.PushState()
+    gc.SetTransform(gc.CreateMatrix())
+    return get_round_box(left, top, right - left, bottom - top, radius * scale)
+
+
+def leave_device(gc):
+    gc.PopState()
+
+
+def draw_corners(gc, corners, x, y, width, height, radius):
+    top_left, top_right, bottom_left, bottom_right = corners
+    gc.DrawBitmap(top_left, x, y, radius, radius)
+    gc.DrawBitmap(top_right, x + width - radius, y, radius, radius)
+    gc.DrawBitmap(bottom_left, x, y + height - radius, radius, radius)
+    gc.DrawBitmap(bottom_right, x + width - radius, y + height - radius, radius, radius)
+
+
+def fill_boxes(gc, colour, boxes):
     gc.SetPen(wx.TRANSPARENT_PEN)
     gc.SetBrush(wx.Brush(wx.Colour(colour)))
-    gc.FillPath(path, wx.ODDEVEN_RULE)
+    mode = gc.GetAntialiasMode()
+    gc.SetAntialiasMode(wx.ANTIALIAS_NONE)
+    for box in boxes:
+        if box[2] > 0 and box[3] > 0:
+            gc.DrawRectangle(*box)
+    gc.SetAntialiasMode(mode)
+
+
+def fill_rounded(gc, colour, x, y, width, height, radius=CARD_RADIUS):
+    x, y, width, height, radius = enter_device(gc, x, y, width, height, radius)
+    fill_boxes(gc, colour, ((x + radius, y, width - radius * 2, height),
+                            (x, y + radius, radius, height - radius * 2),
+                            (x + width - radius, y + radius, radius, height - radius * 2)))
+    if radius:
+        draw_corners(gc, get_corners(radius, colour), x, y, width, height, radius)
+    leave_device(gc)
+
+
+def cut_corners(gc, colour, x, y, width, height, radius=CARD_RADIUS):
+    # what a rounded card leaves of its box at the corners, painted over a picture under it
+    x, y, width, height, radius = enter_device(gc, x, y, width, height, radius)
+    if radius:
+        draw_corners(gc, get_corners(radius, colour, 'outside'), x, y, width, height, radius)
+    leave_device(gc)
+
+
+def draw_card_rim(gc, colour, x, y, width, height, radius=CARD_RADIUS):
+    # a 1px pen renders 2px on the left and top, so the ring is filled, edges and corners apart
+    x, y, width, height, radius = enter_device(gc, x, y, width, height, radius)
+    span = max(radius, 1)
+    fill_boxes(gc, colour, ((x + span, y, width - span * 2, 1),
+                            (x + span, y + height - 1, width - span * 2, 1),
+                            (x, y + span, 1, height - span * 2),
+                            (x + width - 1, y + span, 1, height - span * 2)))
+    if radius:
+        draw_corners(gc, get_corners(radius, colour, 'rim'), x, y, width, height, radius)
+    else:
+        fill_boxes(gc, colour, ((x, y, 1, 1), (x + width - 1, y, 1, 1),
+                                (x, y + height - 1, 1, 1), (x + width - 1, y + height - 1, 1, 1)))
+    leave_device(gc)
 
 
 FONTS = {}
@@ -414,6 +531,10 @@ def draw_text_in(gc, text, rect, font, colour, align='center', back=None):
 
 class Canvas(wx.Panel):
 
+    # draw() works in its own units, this many screen pixels each; get_size and locate
+    # turn the window's size and the mouse's position into them
+    scale = 1.0
+
     def __init__(self, parent, theme):
         super().__init__(parent, style=wx.FULL_REPAINT_ON_RESIZE)
         self.theme = theme
@@ -425,6 +546,28 @@ class Canvas(wx.Panel):
     def set_theme(self, theme):
         self.theme = theme
         self.Refresh()
+
+    def set_scale(self, scale):
+        if scale != self.scale:
+            self.scale = scale
+            self.Refresh()
+
+    def get_size(self):
+        width, height = self.GetClientSize()
+        return width / self.scale, height / self.scale
+
+    def locate(self, position):
+        return wx.Point(int(position.x / self.scale), int(position.y / self.scale))
+
+    def draw_scaled(self, gc, width, height):
+        # width and height in screen pixels
+        if self.scale == 1.0:
+            self.draw(gc, width, height)
+            return
+        gc.PushState()
+        gc.Scale(self.scale, self.scale)
+        self.draw(gc, width / self.scale, height / self.scale)
+        gc.PopState()
 
     def on_paint(self, event):
         dc = wx.AutoBufferedPaintDC(self)
@@ -440,7 +583,7 @@ class Canvas(wx.Panel):
         if gc is None:
             return
         gc.SetAntialiasMode(wx.ANTIALIAS_DEFAULT)
-        self.draw(gc, width, height)
+        self.draw_scaled(gc, width, height)
 
     def get_background(self, width, height):
         return None
@@ -456,7 +599,7 @@ class Canvas(wx.Panel):
         width, height = parent.GetClientSize()
         gc.PushState()
         gc.Translate(-x, -y)
-        parent.draw(gc, width, height)
+        parent.draw_scaled(gc, width, height)
         gc.PopState()
 
     def fit_text(self, gc, text, limit):
@@ -477,6 +620,8 @@ class Canvas(wx.Panel):
 class TimerCanvas(Canvas):
 
     WIDTH_DIVISOR = 13
+    # the page's scale, drawn at screen size: the text grows past MAX_TIME_SIZE with it
+    zoom = 1.0
 
     def __init__(self, parent, theme):
         super().__init__(parent, theme)
@@ -487,7 +632,7 @@ class TimerCanvas(Canvas):
 
     def get_time_size(self, width, height):
         return max(14, min(int(width / self.WIDTH_DIVISOR), int(height / 2.9),
-                           MAX_TIME_SIZE))
+                           int(MAX_TIME_SIZE * self.zoom)))
 
     def get_time_height(self, width, height):
         dc = wx.MemoryDC(wx.Bitmap(1, 1))
@@ -521,12 +666,12 @@ BAND_INSET = (HEADER_BAND - BUTTON_HEIGHT) // 2
 
 
 def fill_rect(gc, colour, x, y, width, height, radius=0):
+    if radius:
+        fill_rounded(gc, colour, x, y, width, height, radius)
+        return
     gc.SetPen(wx.TRANSPARENT_PEN)
     gc.SetBrush(wx.Brush(wx.Colour(colour)))
-    if radius:
-        gc.DrawRoundedRectangle(x, y, width, height, radius)
-    else:
-        gc.DrawRectangle(x, y, width, height)
+    gc.DrawRectangle(x, y, width, height)
 
 
 def draw_frame(gc, colour, x, y, width, height):

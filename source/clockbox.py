@@ -19,6 +19,7 @@ from utilities import BUTTON_HEIGHT
 from utilities import MAX_DIAL
 from utilities import Canvas
 from utilities import get_font
+from utilities import get_page_scale
 
 
 WEEKDAYS = ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday')
@@ -194,8 +195,13 @@ class ZoneSwitch(Pressable):
         self.marked = -1
         self.down_index = -1
         self.segment = max(get_button_width(name) for _, name in self.OPTIONS)
+        self.set_scale(1.0)
+
+    def set_scale(self, scale):
+        super().set_scale(scale)
         count = len(self.OPTIONS)
-        self.SetMinSize(wx.Size(self.segment * count + BUTTON_GAP * (count - 1), BUTTON_HEIGHT))
+        width = self.segment * count + BUTTON_GAP * (count - 1)
+        self.SetMinSize(wx.Size(round(width * scale), round(BUTTON_HEIGHT * scale)))
 
     def GetValue(self):
         return self.value
@@ -218,14 +224,14 @@ class ZoneSwitch(Pressable):
         return self.get_index(position) >= 0
 
     def on_track(self, event):
-        index = self.get_index(event.GetPosition())
+        index = self.get_index(self.locate(event.GetPosition()))
         if index != self.marked:
             self.marked = index
             self.Refresh()
         super().on_track(event)
 
     def on_down(self, event):
-        self.down_index = self.get_index(event.GetPosition())
+        self.down_index = self.get_index(self.locate(event.GetPosition()))
         super().on_down(event)
 
     def on_leave(self, event):
@@ -264,6 +270,8 @@ class ClockBox(wx.Panel):
     digital_size = 0
     digital_lead = 0
     placed = None
+    # the carousel pages' shared scale, applied to the dial's limit, the texts and gaps
+    zoom = None
 
     def __init__(self, parent, theme, on_zone=None):
         super().__init__(parent)
@@ -280,8 +288,8 @@ class ClockBox(wx.Panel):
         sizer.Add(self.canvas, 0, wx.EXPAND)
         self.face_gap = sizer.AddSpacer(0)
         sizer.Add(self.digital, 0, wx.ALIGN_CENTER)
-        sizer.Add(self.datetext, 0, wx.ALIGN_CENTER | wx.TOP, DATE_GAP)
-        sizer.Add(self.zone, 0, wx.ALIGN_CENTER | wx.TOP, SWITCH_GAP)
+        self.date_item = sizer.Add(self.datetext, 0, wx.ALIGN_CENTER | wx.TOP, DATE_GAP)
+        self.zone_item = sizer.Add(self.zone, 0, wx.ALIGN_CENTER | wx.TOP, SWITCH_GAP)
         self.SetSizer(sizer)
         self.Bind(wx.EVT_SIZE, self.on_size)
         self.apply_theme(theme)
@@ -303,10 +311,22 @@ class ClockBox(wx.Panel):
             dc = wx.MemoryDC(wx.Bitmap(1, 1))
             dc.SetFont(get_font(size, bold=True))
             self.digital_lead = dc.GetFontMetrics().internalLeading
-        block = self.digital.GetBestSize()[1] + DATE_GAP + self.datetext.GetBestSize()[1]
+        block = self.digital.GetBestSize()[1] + self.date_item.GetBorder() + \
+            self.datetext.GetBestSize()[1]
         if self.utc_offered:
-            block += SWITCH_GAP + self.zone.GetMinSize()[1]
+            block += self.zone_item.GetBorder() + self.zone.GetMinSize()[1]
         return block
+
+    def set_zoom(self, zoom):
+        if zoom == self.zoom:
+            return
+        self.zoom = zoom
+        # half points: the font cache stays small as the window is dragged larger
+        self.datetext.SetFont(get_font(round(10 * zoom * 2) / 2))
+        self.zone.set_scale(zoom)
+        self.date_item.SetBorder(round(DATE_GAP * zoom))
+        self.zone_item.SetBorder(round(SWITCH_GAP * zoom))
+        self.placed = None
 
     def update_layout(self):
         # numeral size follows the diameter and the diameter follows the text height,
@@ -314,12 +334,15 @@ class ClockBox(wx.Panel):
         width, height = self.GetClientSize()
         if width <= 0 or height <= 0:
             return
+        self.set_zoom(get_page_scale(width, height))
+        zoom = self.zoom
 
         size = self.digital_size or 12
         for _ in range(6):
             block = self.measure_block(size) - self.digital_lead
-            floor = max(GAP, self.digital_lead)
-            diameter = max(MIN_DIAMETER, min(MAX_DIAL, width - SIDE_GAP * 2,
+            floor = max(round(GAP * zoom), self.digital_lead)
+            diameter = max(MIN_DIAMETER, min(round(MAX_DIAL * zoom),
+                                             width - round(SIDE_GAP * zoom) * 2,
                                              height - block - floor * 3))
             settled = self.canvas.get_numeral_size(diameter / 2)
             if settled == size:

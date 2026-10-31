@@ -101,7 +101,7 @@ def render(window):
         background = window.get_background(width, height) if width > 0 and height > 0 else None
         if background is not None:
             gc.DrawBitmap(background, 0, 0, width, height)
-        window.draw(gc, width, height)
+        window.draw_scaled(gc, width, height)
     elif isinstance(window, (wx.StaticText, wx.TextCtrl)):
         picture = print_native(window)
         if picture is not None:

@@ -13,10 +13,12 @@ import wx
 from controls import RoundButton
 from controls import set_start
 from utilities import MAX_TIME_SIZE
+from utilities import ROUND_SIZE
 from utilities import Canvas
 from utilities import TimerCanvas
 from utilities import format_timer
 from utilities import get_font
+from utilities import get_page_scale
 
 
 BUTTON_GAP = 10
@@ -29,7 +31,7 @@ class StopwatchCanvas(TimerCanvas):
 
     def get_time_size(self, width, height):
         # width only, the canvas height follows the text and would never settle
-        return max(14, min(int(width / self.WIDTH_DIVISOR), MAX_TIME_SIZE))
+        return max(14, min(int(width / self.WIDTH_DIVISOR), int(MAX_TIME_SIZE * self.zoom)))
 
 
 class LapList(Canvas):
@@ -71,7 +73,7 @@ class LapList(Canvas):
         self.Refresh()
 
     def get_visible_count(self):
-        height = self.GetClientSize()[1] - self.HEADER_HEIGHT
+        height = self.get_size()[1] - self.HEADER_HEIGHT
         return max(0, int(height // self.ROW_HEIGHT))
 
     def on_wheel(self, event):
@@ -93,7 +95,8 @@ class LapList(Canvas):
         theme = self.theme
         columns = self.get_columns(width)
 
-        gc.SetFont(get_font(9), wx.Colour(theme['dim']))
+        # the pages' type: the header a note, the laps text
+        gc.SetFont(get_font(8), wx.Colour(theme['dim']))
         top = (self.HEADER_HEIGHT - gc.GetTextExtent('0')[1]) / 2
         gc.DrawText('Laps', columns[0], top)
         self.draw_right(gc, 'Time', columns[2], top)
@@ -112,7 +115,7 @@ class LapList(Canvas):
 
     def draw_row(self, gc, columns, row, top):
         theme = self.theme
-        font = get_font(9)
+        font = get_font(10)
         gc.SetFont(font, wx.Colour(theme['dim']))
         y = top + (self.ROW_HEIGHT - gc.GetTextExtent('0')[1]) / 2
         gc.DrawText(row[0], columns[0], y)
@@ -141,25 +144,44 @@ class StopwatchBox(wx.Panel):
 
         row = wx.BoxSizer(wx.HORIZONTAL)
         row.AddStretchSpacer()
+        # (item, its gap at scale 1), resized with the page's scale
+        self.gaps = []
         for button in self.buttons:
-            row.Add(button, 0, wx.LEFT | wx.RIGHT, BUTTON_GAP)
+            self.gaps.append((row.Add(button, 0, wx.LEFT | wx.RIGHT, BUTTON_GAP), BUTTON_GAP))
         row.AddStretchSpacer()
 
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.AddStretchSpacer()
         sizer.Add(self.canvas, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, MARGIN)
-        sizer.Add(row, 0, wx.EXPAND | wx.TOP, ROW_GAP)
-        sizer.AddSpacer(ROW_GAP)
+        self.gaps.append((sizer.Add(row, 0, wx.EXPAND | wx.TOP, ROW_GAP), ROW_GAP))
+        self.lap_gap = sizer.AddSpacer(ROW_GAP)
         lap_row = wx.BoxSizer(wx.HORIZONTAL)
         lap_row.AddStretchSpacer()
         lap_row.Add(self.laps, 0, wx.EXPAND)
         lap_row.AddStretchSpacer()
         sizer.Add(lap_row, 1, wx.EXPAND | wx.BOTTOM, MARGIN)
+        self.zoom = None
         self.SetSizer(sizer)
         self.Bind(wx.EVT_SIZE, self.on_size)
         self.apply_theme(theme)
 
+    def set_zoom(self, zoom):
+        # the carousel pages' shared scale: the time's limit, the keys, the laps and gaps
+        if zoom == self.zoom:
+            return
+        self.zoom = zoom
+        self.canvas.zoom = zoom
+        for button in self.buttons:
+            button.SetMinSize(wx.Size(round(ROUND_SIZE * zoom), round(ROUND_SIZE * zoom)))
+        for item, gap in self.gaps:
+            item.SetBorder(round(gap * zoom))
+        self.lap_gap.AssignSpacer(wx.Size(0, round(ROW_GAP * zoom)))
+        self.laps.set_scale(zoom)
+        self.laps.SetMinSize(wx.Size(round(TABLE_WIDTH * zoom), -1))
+        self.Layout()
+
     def on_size(self, event):
+        self.set_zoom(get_page_scale(*self.GetClientSize()))
         width = self.GetClientSize()[0] - MARGIN * 2
         if width > 0:
             target = self.canvas.get_time_height(width, 0)

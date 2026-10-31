@@ -23,11 +23,16 @@ from controls import RoundButton
 from icons import draw_glyph
 from utilities import CARD_RADIUS
 from utilities import Canvas
+from utilities import cut_corners
 from utilities import draw_card_rim
 from utilities import draw_text_in
+from utilities import fill_rounded
 from utilities import get_font
 from utilities import get_ink
+from utilities import get_page_scale
 from utilities import shade
+from weatherbox import draw_moon
+from weatherbox import draw_sun
 
 
 DEFAULT_CITIES = ('Honolulu', 'Los Angeles', 'New York', 'UTC', 'Dubai')
@@ -48,9 +53,14 @@ ROW_GAP = 0
 ROW_STRIDE = ROW_HEIGHT + ROW_GAP
 MARGIN = 14
 # the map and the list stop growing here and stay centred, as the other pages' dial
-COLUMN_WIDTH = 400
+# the Weather page's width too
+COLUMN_WIDTH = 462
 ADD_SIZE = 36
 PHASE_WIDTH = 24
+# a reading in a list, bold; the pages' type runs 8 for notes, 10 for text, 12 for these
+TIME_SIZE = 12
+# a hint beside the name, not a reading: small and faint
+PHASE_ICON = 17
 NAME_GAP = 12
 LINE_GAP = 6
 
@@ -98,8 +108,9 @@ def draw_city_text(gc, theme, row, left, right, top, height, fill, time_size, co
     colour = colour or theme['text']
     time_font = get_font(time_size, bold=True)
     # the digits' ClearType fringe ran a pixel past the dividers
-    draw_text_in(gc, row['time'], wx.Rect(0, int(top), right - 1, height), time_font, colour,
-                 align='right', back=fill)
+    # a scaled list draws in fractional units
+    draw_text_in(gc, row['time'], wx.Rect(0, int(top), int(right) - 1, int(height)), time_font,
+                 colour, align='right', back=fill)
     gc.SetFont(time_font, wx.Colour(colour))
     time_width = gc.GetTextExtent(row['time'])[0]
 
@@ -131,10 +142,8 @@ def draw_row_divider(gc, theme, width, top):
 
 
 def draw_row_light(gc, theme, width, top, height):
-    gc.SetPen(wx.TRANSPARENT_PEN)
-    gc.SetBrush(wx.Brush(wx.Colour(theme['control'])))
-    gc.DrawRoundedRectangle(ROW_INSET, top + ROW_INSET, width - ROW_INSET * 2,
-                            height - ROW_INSET * 2, CARD_RADIUS - 2)
+    fill_rounded(gc, theme['control'], ROW_INSET, top + ROW_INSET, width - ROW_INSET * 2,
+                 height - ROW_INSET * 2, CARD_RADIUS - 2)
     return theme['control']
 
 
@@ -143,6 +152,8 @@ class WorldMap(Canvas):
     GRID = 128
     PIN_RADIUS = 3.5
     PIN_REACH = 12
+    # drawn at screen size; the pins grow with the carousel pages' shared scale
+    zoom = 1.0
 
     def __init__(self, parent, theme, on_hover=None, on_reveal=None):
         super().__init__(parent, theme)
@@ -172,7 +183,7 @@ class WorldMap(Canvas):
 
     def hit_test(self, x, y):
         width, height = self.GetClientSize()
-        found, nearest = -1, self.PIN_REACH
+        found, nearest = -1, self.PIN_REACH * self.zoom
         for longitude, latitude, row in self.pins:
             px, py = self.project(longitude, latitude, width, height)
             span = math.hypot(px - x, py - y)
@@ -219,12 +230,7 @@ class WorldMap(Canvas):
 
     def draw_card_edge(self, gc, width, height):
         theme = self.theme
-        path = gc.CreatePath()
-        path.AddRectangle(0, 0, width, height)
-        path.AddRoundedRectangle(0, 0, width, height, CARD_RADIUS)
-        gc.SetPen(wx.TRANSPARENT_PEN)
-        gc.SetBrush(wx.Brush(wx.Colour(theme['bg'])))
-        gc.FillPath(path, wx.ODDEVEN_RULE)
+        cut_corners(gc, theme['bg'], 0, 0, width, height)
 
         draw_card_rim(gc, theme['rim'], 0, 0, width, height)
 
@@ -313,7 +319,7 @@ class WorldMap(Canvas):
 
     def draw_pin(self, gc, x, y, active):
         theme = self.theme
-        radius = self.PIN_RADIUS
+        radius = self.PIN_RADIUS * self.zoom
         gc.SetPen(wx.TRANSPARENT_PEN)
         if active:
             ring = wx.Colour(theme['accent'])
@@ -394,7 +400,8 @@ class CityList(Canvas):
             self.Refresh()
 
     def get_view_height(self):
-        height = self.GetClientSize()[1]
+        # rounded: a scaled height falls a hair short of the rows it was sized for
+        height = round(self.get_size()[1])
         total = len(self.rows) * ROW_STRIDE
         if total <= height:
             return total
@@ -421,8 +428,8 @@ class CityList(Canvas):
         index = self.hit_test(y)
         if index < 0 or not self.editing:
             return -1
-        rect = self.get_button_rect(self.GetClientSize()[0], self.get_row_top(index))
-        return index if rect.Contains(wx.Point(x, y)) else -1
+        rect = self.get_button_rect(self.get_size()[0], self.get_row_top(index))
+        return index if rect.Contains(wx.Point(int(x), int(y))) else -1
 
     def on_wheel(self, event):
         limit = max(0, len(self.rows) - self.get_visible_count())
@@ -469,7 +476,7 @@ class CityList(Canvas):
         self.Refresh()
 
     def on_motion(self, event):
-        x, y = event.GetPosition()
+        x, y = self.locate(event.GetPosition())
         button = self.hit_button(x, y)
         if button != self.on_button:
             self.on_button = button
@@ -492,7 +499,7 @@ class CityList(Canvas):
             self.on_hover(index)
 
     def on_up(self, event):
-        index = self.hit_button(*event.GetPosition())
+        index = self.hit_button(*self.locate(event.GetPosition()))
         if index < 0:
             return
         if self.rows[index]['fixed']:
@@ -506,9 +513,7 @@ class CityList(Canvas):
         view = self.get_view_height()
         if not view:
             return
-        gc.SetPen(wx.TRANSPARENT_PEN)
-        gc.SetBrush(wx.Brush(wx.Colour(theme['face'])))
-        gc.DrawRoundedRectangle(0, 0, width, view, CARD_RADIUS)
+        fill_rounded(gc, theme['face'], 0, 0, width, view)
 
         gc.Clip(0, 0, width, view)
         for index in range(len(self.rows)):
@@ -545,7 +550,7 @@ class CityList(Canvas):
         if self.editing:
             right = self.get_button_rect(width, top).x - NAME_GAP
         draw_city_text(gc, theme, row, MARGIN + PHASE_WIDTH + NAME_GAP, right, top, ROW_HEIGHT,
-                       fill, 15)
+                       fill, TIME_SIZE)
 
         if self.editing:
             self.draw_button(gc, row, index, width, top)
@@ -555,10 +560,8 @@ class CityList(Canvas):
         rect = self.get_button_rect(width, top)
         if index == self.on_button:
             grey = wx.Colour(theme['tick'])
-            gc.SetPen(wx.TRANSPARENT_PEN)
-            gc.SetBrush(wx.Brush(wx.Colour(grey.Red(), grey.Green(), grey.Blue(), 64)))
-            gc.DrawRoundedRectangle(rect.x + 1, rect.y + 1, rect.width - 2, rect.height - 2,
-                                    RoundButton.CORNER)
+            fill_rounded(gc, wx.Colour(grey.Red(), grey.Green(), grey.Blue(), 64), rect.x + 1,
+                         rect.y + 1, rect.width - 2, rect.height - 2, RoundButton.CORNER)
 
         cx, cy = rect.x + rect.width / 2, rect.y + rect.height / 2
         colour = theme['dim']
@@ -568,23 +571,12 @@ class CityList(Canvas):
             self.draw_close(gc, cx, cy, colour, 3.4)
 
     def draw_phase(self, gc, cx, cy, daylight, fill):
+        # the Weather page's sun and moon in one tone: colour here stood out among the names
         theme = self.theme
-        colour = wx.Colour(theme['text'] if daylight else theme['dim'])
-        gc.SetPen(wx.TRANSPARENT_PEN)
-        gc.SetBrush(wx.Brush(colour))
-
         if daylight:
-            gc.DrawEllipse(cx - 4.25, cy - 4.25, 8.5, 8.5)
-            gc.SetPen(wx.Pen(colour, 1))
-            for step in range(8):
-                angle = math.radians(step * 45)
-                dx, dy = math.cos(angle), math.sin(angle)
-                gc.StrokeLine(cx + dx * 6.4, cy + dy * 6.4, cx + dx * 8.5, cy + dy * 8.5)
-            return
-
-        gc.DrawEllipse(cx - 6.8, cy - 6.8, 13.6, 13.6)
-        gc.SetBrush(wx.Brush(wx.Colour(fill)))
-        gc.DrawEllipse(cx - 3.8, cy - 8.1, 12.75, 12.75)
+            draw_sun(gc, cx, cy, PHASE_ICON, theme['dim'])
+        else:
+            draw_moon(gc, cx, cy, PHASE_ICON, theme['tick'], fill)
 
     def draw_close(self, gc, cx, cy, colour, size=5):
         gc.SetPen(wx.Pen(wx.Colour(colour), 2))
@@ -612,14 +604,26 @@ class Toolbox(Canvas):
                                       size=self.BUTTON, square=True, backdrop=plate)
         self.buttons = (self.edit_button, self.add_button)
         self.edit_button.icon_shift = 1
-        # outside a sizer SetMinSize alone leaves the 20x20 default size
-        for index, button in enumerate(self.buttons):
-            button.SetSize(self.PADDING + index * (self.BUTTON + self.GAP),
-                           self.PADDING, self.BUTTON, self.BUTTON)
+        self.zoom = None
+        self.set_zoom(1.0)
 
-    @classmethod
-    def get_extent(cls):
-        return (cls.PADDING * 2 + cls.BUTTON * 2 + cls.GAP, cls.PADDING * 2 + cls.BUTTON)
+    def set_zoom(self, zoom):
+        # drawn at screen size: the plate, its keys and their corners grow with the page
+        if zoom == self.zoom:
+            return
+        self.zoom = zoom
+        button, padding, gap = (round(value * zoom) for value in
+                                (self.BUTTON, self.PADDING, self.GAP))
+        # outside a sizer SetMinSize alone leaves the 20x20 default size
+        for index, key in enumerate(self.buttons):
+            key.CORNER = RoundButton.CORNER * zoom
+            key.SetSize(padding + index * (button + gap), padding, button, button)
+        self.Refresh()
+
+    def get_extent(self):
+        button, padding, gap = (round(value * self.zoom) for value in
+                                (self.BUTTON, self.PADDING, self.GAP))
+        return (padding * 2 + button * 2 + gap, padding * 2 + button)
 
     def set_theme(self, theme):
         super().set_theme(theme)
@@ -632,10 +636,9 @@ class Toolbox(Canvas):
 
     def draw(self, gc, width, height):
         self.draw_backdrop(gc)
-        gc.SetPen(wx.TRANSPARENT_PEN)
-        gc.SetBrush(wx.Brush(self.get_plate(self.theme)))
-        gc.DrawRoundedRectangle(0, 0, width, height, self.RADIUS)
-        draw_card_rim(gc, self.theme['rim'], 0, 0, width, height, self.RADIUS)
+        radius = round(self.RADIUS * self.zoom)
+        fill_rounded(gc, self.get_plate(self.theme), 0, 0, width, height, radius)
+        draw_card_rim(gc, self.theme['rim'], 0, 0, width, height, radius)
 
 
 class SearchBox(Canvas):
@@ -652,18 +655,28 @@ class SearchBox(Canvas):
                                        size=size, square=True)
         self.field = wx.TextCtrl(self, style=wx.TE_PROCESS_ENTER | wx.NO_BORDER)
         self.field.SetHint('Search a city')
+        self.zoom = 1.0
         self.SetMinSize(wx.Size(-1, self.HEIGHT))
         self.Bind(wx.EVT_SIZE, self.on_size)
 
+    def set_zoom(self, zoom):
+        # drawn at screen size: its height, key and type grow with the page
+        if zoom != self.zoom:
+            self.zoom = zoom
+            self.field.SetFont(get_font(round(10 * zoom * 2) / 2))
+            self.back_button.CORNER = RoundButton.CORNER * zoom
+            self.SetMinSize(wx.Size(-1, round(self.HEIGHT * zoom)))
+
     def on_size(self, event):
         width, height = self.GetClientSize()
-        size = height - self.PADDING * 2
-        self.back_button.SetSize(self.PADDING, self.PADDING, size, size)
+        padding, gap = round(self.PADDING * self.zoom), round(self.GAP * self.zoom)
+        size = height - padding * 2
+        self.back_button.SetSize(padding, padding, size, size)
         # a taller single-line TextCtrl pins its text to the top, keep its own height
-        left = self.PADDING + size + self.GAP
+        left = padding + size + gap
         text_height = self.field.GetBestSize()[1]
         self.field.SetSize(left, (height - text_height) // 2,
-                           max(0, width - left - self.PADDING - self.GAP), text_height)
+                           max(0, width - left - padding - gap), text_height)
         event.Skip()
 
     def set_theme(self, theme):
@@ -671,12 +684,10 @@ class SearchBox(Canvas):
         self.back_button.set_theme(theme)
         self.field.SetBackgroundColour(wx.Colour(theme['face']))
         self.field.SetForegroundColour(wx.Colour(theme['text']))
-        self.field.SetFont(get_font(10))
+        self.field.SetFont(get_font(round(10 * self.zoom * 2) / 2))
 
     def draw(self, gc, width, height):
-        gc.SetPen(wx.TRANSPARENT_PEN)
-        gc.SetBrush(wx.Brush(wx.Colour(self.theme['face'])))
-        gc.DrawRoundedRectangle(0, 0, width, height, CARD_RADIUS)
+        fill_rounded(gc, self.theme['face'], 0, 0, width, height)
         draw_card_rim(gc, self.theme['rim'], 0, 0, width, height)
 
 
@@ -725,7 +736,7 @@ class CityPicker(Canvas):
         event.Skip()
 
     def get_visible_count(self):
-        return max(1, self.GetClientSize()[1] // self.ROW)
+        return max(1, round(self.get_size()[1]) // self.ROW)
 
     def get_view_height(self):
         return min(len(self.rows), self.get_visible_count()) * self.ROW
@@ -744,7 +755,7 @@ class CityPicker(Canvas):
             self.show_scrollbar()
 
     def on_motion(self, event):
-        index = self.hit_test(event.GetY())
+        index = self.hit_test(self.locate(event.GetPosition()).y)
         if index != self.hovered:
             self.hovered = index
             pickable = index >= 0 and not self.rows[index]['taken']
@@ -757,7 +768,7 @@ class CityPicker(Canvas):
             self.Refresh()
 
     def on_up(self, event):
-        index = self.hit_test(event.GetY())
+        index = self.hit_test(self.locate(event.GetPosition()).y)
         if index >= 0 and not self.rows[index]['taken']:
             self.on_pick(self.rows[index]['name'])
 
@@ -766,9 +777,7 @@ class CityPicker(Canvas):
         view = self.get_view_height()
         if not view:
             return
-        gc.SetPen(wx.TRANSPARENT_PEN)
-        gc.SetBrush(wx.Brush(wx.Colour(theme['face'])))
-        gc.DrawRoundedRectangle(0, 0, width, view, CARD_RADIUS)
+        fill_rounded(gc, theme['face'], 0, 0, width, view)
 
         for slot in range(view // self.ROW):
             index = self.offset + slot
@@ -779,7 +788,7 @@ class CityPicker(Canvas):
                 draw_row_divider(gc, theme, width, top)
             if index == self.hovered and not row['taken']:
                 fill = draw_row_light(gc, theme, width, top, self.ROW)
-            draw_city_text(gc, theme, row, MARGIN, width - MARGIN, top, self.ROW, fill, 11,
+            draw_city_text(gc, theme, row, MARGIN, width - MARGIN, top, self.ROW, fill, TIME_SIZE,
                            theme['dim'] if row['taken'] else None)
 
         draw_card_rim(gc, theme['rim'], 0, 0, width, view)
@@ -803,6 +812,7 @@ class WorldBox(wx.Panel):
         self.editing = False
         self.picking_home = False
         self.stamp = None
+        self.zoom = None
 
         self.book = wx.Simplebook(self)
         self.browse = self.build_browse(theme)
@@ -829,7 +839,7 @@ class WorldBox(wx.Panel):
 
         column = wx.BoxSizer(wx.VERTICAL)
         column.Add(self.map, 0, wx.EXPAND)
-        column.AddSpacer(MARGIN)
+        self.map_gap = column.AddSpacer(MARGIN)
         column.Add(self.list, 0, wx.EXPAND)
         row = wx.BoxSizer(wx.HORIZONTAL)
         row.AddStretchSpacer()
@@ -837,7 +847,7 @@ class WorldBox(wx.Panel):
         row.AddStretchSpacer()
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.AddStretchSpacer()
-        sizer.Add(row, 0, wx.EXPAND | wx.ALL, MARGIN)
+        self.browse_margin = sizer.Add(row, 0, wx.EXPAND | wx.ALL, MARGIN)
         sizer.AddStretchSpacer()
         panel.SetSizer(sizer)
         return panel
@@ -850,14 +860,14 @@ class WorldBox(wx.Panel):
         self.results = CityPicker(panel, theme, self.on_pick)
 
         column = wx.BoxSizer(wx.VERTICAL)
-        column.Add(self.search, 0, wx.EXPAND | wx.BOTTOM, MARGIN)
+        self.search_gap = column.Add(self.search, 0, wx.EXPAND | wx.BOTTOM, MARGIN)
         column.Add(self.results, 1, wx.EXPAND)
         row = wx.BoxSizer(wx.HORIZONTAL)
         row.AddStretchSpacer()
         row.Add(column, 0, wx.EXPAND)
         row.AddStretchSpacer()
         sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(row, 1, wx.EXPAND | wx.ALL, MARGIN)
+        self.picker_margin = sizer.Add(row, 1, wx.EXPAND | wx.ALL, MARGIN)
         panel.SetSizer(sizer)
         return panel
 
@@ -872,15 +882,37 @@ class WorldBox(wx.Panel):
         self.fit_column()
         event.Skip()
 
+    def set_zoom(self, zoom):
+        # the carousel pages' shared scale: the lists draw in their own units, the map,
+        # its tools and the search box at screen size, the gaps between them grow too
+        if zoom == self.zoom:
+            return
+        self.zoom = zoom
+        self.list.set_scale(zoom)
+        self.results.set_scale(zoom)
+        self.map.zoom = zoom
+        self.map.Refresh()
+        self.toolbox.set_zoom(zoom)
+        self.search.set_zoom(zoom)
+        margin = round(MARGIN * zoom)
+        self.map_gap.AssignSpacer(wx.Size(0, margin))
+        for item in (self.browse_margin, self.search_gap, self.picker_margin):
+            item.SetBorder(margin)
+        self.place_toolbox()
+
     def fit_column(self):
         width, height = self.GetClientSize()
-        width = min(COLUMN_WIDTH, width - MARGIN * 2)
+        self.set_zoom(get_page_scale(width, height))
+        zoom = self.zoom
+        margin = round(MARGIN * zoom)
+        width = min(round(COLUMN_WIDTH * zoom), width - margin * 2)
         if width <= 0:
             return
         map_height = int(width / ASPECT)
         # as tall as its rows, whole rows when the window is shorter
-        room = (height - MARGIN * 3 - map_height) // ROW_STRIDE * ROW_STRIDE
-        list_height = max(ROW_STRIDE, min(len(self.list.rows) * ROW_STRIDE, room))
+        stride = ROW_STRIDE * zoom
+        room = int((height - margin * 3 - map_height) // stride * stride)
+        list_height = max(math.ceil(stride), min(math.ceil(len(self.list.rows) * stride), room))
         sizes = (wx.Size(width, map_height), wx.Size(width, list_height), wx.Size(width, -1))
         if sizes == (self.map.GetMinSize(), self.list.GetMinSize(), self.results.GetMinSize()):
             return
@@ -891,10 +923,14 @@ class WorldBox(wx.Panel):
         self.picker.Layout()
 
     def on_map_size(self, event):
-        height = self.map.GetClientSize()[1]
-        extent = Toolbox.get_extent()
-        self.toolbox.SetSize(TOOLBOX_INSET, height - extent[1] - TOOLBOX_INSET, *extent)
+        self.place_toolbox()
         event.Skip()
+
+    def place_toolbox(self):
+        height = self.map.GetClientSize()[1]
+        extent = self.toolbox.get_extent()
+        inset = round(TOOLBOX_INSET * (self.zoom or 1.0))
+        self.toolbox.SetSize(inset, height - extent[1] - inset, *extent)
 
     def on_map_hover(self, index):
         self.list.set_active(index)

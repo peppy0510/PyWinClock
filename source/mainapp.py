@@ -21,6 +21,7 @@ from sidemenu import SideMenu
 from stopwatchbox import StopwatchBox
 from titlebar import TitleBar
 from tray import TrayIcon
+from weatherbox import WeatherBox
 from worldbox import WorldBox
 from utilities import APP_NAME
 from utilities import THEMES
@@ -42,12 +43,13 @@ RUNNING_INTERVAL = 16
 DEFAULT_SIZE = (440, 640)
 THEME_POLL = 2.0
 
-MENU_ITEMS = (('Clock', 'clock'), ('World', 'globe'), ('Stopwatch', 'stopwatch'),
-              ('Countdown', 'countdown'), None, ('Settings', 'settings'))
+MENU_ITEMS = (('Clock', 'clock'), ('World', 'globe'), ('Weather', 'weather'),
+              ('Stopwatch', 'stopwatch'), ('Countdown', 'countdown'), None,
+              ('Settings', 'settings'))
 
 FRAME_STYLE = wx.DEFAULT_FRAME_STYLE & ~wx.CAPTION
 
-CAROUSEL_PAGES = 4
+CAROUSEL_PAGES = 5
 
 MIN_VISIBLE_WIDTH = 120
 MIN_VISIBLE_HEIGHT = 32
@@ -107,12 +109,14 @@ class MainFrame(wx.Frame):
         self.clockbox.use_utc = settings.get(
             'clock_zone', 'utc' if settings.get('use_utc') else 'local') == 'utc'
         self.worldbox = WorldBox(self.book, theme, settings, self.store_settings)
+        # the World page's home city
+        self.weatherbox = WeatherBox(self.book, theme, lambda: self.worldbox.home)
         self.stopwatchbox = StopwatchBox(self.book, theme)
         self.countdownbox = CountdownBox(self.book, theme)
         self.settings_folds = set(settings.get('settings_folded', []))
         self.settingsbox = SettingsBox(self.book, theme, settings, self.on_settings,
                                        self.settings_folds, self.store_settings)
-        for page in (self.clockbox, self.worldbox, self.stopwatchbox,
+        for page in (self.clockbox, self.worldbox, self.weatherbox, self.stopwatchbox,
                      self.countdownbox, self.settingsbox):
             self.book.AddPage(page, '')
 
@@ -186,6 +190,7 @@ class MainFrame(wx.Frame):
 
         self.clockbox.apply_theme(theme)
         self.worldbox.apply_theme(theme)
+        self.weatherbox.apply_theme(theme)
         self.stopwatchbox.apply_theme(theme)
         self.countdownbox.apply_theme(theme)
         self.settingsbox.apply_theme(theme)
@@ -259,6 +264,7 @@ class MainFrame(wx.Frame):
                                   self.settingsbox.preset.GetValue(),
                                   self.settingsbox.smooth.GetValue())
         self.worldbox.set_options(self.settingsbox.use24h.GetValue())
+        self.weatherbox.set_options(self.settingsbox.use24h.GetValue())
 
         style = self.GetWindowStyle()
         if self.settingsbox.ontop.GetValue():
@@ -372,6 +378,8 @@ class MainFrame(wx.Frame):
         # fire into the destroyed window (0xc0000374)
         self.sidemenu.close()
         self.sidemenu.timer.Stop()
+        # the weather list's scroll bar fades on a timer of its own, the same crash
+        self.weatherbox.timer.Stop()
         if self.restore_bounds is not None:
             self.stored_rect = list(self.restore_bounds)
         elif self.IsIconized() is False and self.IsMaximized() is False:

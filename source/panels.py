@@ -29,15 +29,12 @@ from utilities import draw_chevron
 from utilities import draw_frame
 from utilities import draw_text_in
 from utilities import fill_rect
+from utilities import fill_rounded
 from utilities import get_font
 from utilities import get_ink
 from utilities import get_ink_span
 from utilities import get_text_top
 from utilities import get_text_width
-
-
-def get_pen(gc, colour, width=1):
-    return gc.CreatePen(wx.GraphicsPenInfo(wx.Colour(colour)).Width(width))
 
 
 def get_button_width(text):
@@ -56,10 +53,10 @@ def draw_button(gc, theme, rect, text, state='plain', tone=None):
         edge, colour = theme['edge'], theme['text']
         if tone == 'warn':
             edge = colour = theme['warn']
-    gc.SetPen(get_pen(gc, edge))
-    gc.SetBrush(wx.Brush(wx.Colour(fill)))
-    gc.DrawRoundedRectangle(rect.x + 0.5, rect.y + 0.5, rect.width - 1, rect.height - 1,
-                            PANEL_RADIUS)
+    # the edge as a ring of its own, the fill 1px inside it
+    fill_rounded(gc, edge, rect.x, rect.y, rect.width, rect.height, PANEL_RADIUS)
+    fill_rounded(gc, fill, rect.x + 1, rect.y + 1, rect.width - 2, rect.height - 2,
+                 PANEL_RADIUS - 1)
     draw_text_in(gc, text, rect, get_font(BUTTON_FONT), colour, back=fill)
 
 

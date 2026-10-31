@@ -16,8 +16,10 @@ from controls import set_start
 from utilities import MAX_DIAL
 from utilities import ROUND_SIZE
 from utilities import Canvas
+from utilities import fill_rounded
 from utilities import TimerCanvas
 from utilities import get_font
+from utilities import get_page_scale
 from utilities import mix
 
 
@@ -31,7 +33,7 @@ BUTTON_GAP = 10
 # radius from the width only, height -> radius -> height never settles
 RING_RATIO = 0.38
 RING_PAD = 10
-MAX_RADIUS = (MAX_DIAL - RING_PAD) / 2
+RING_WIDTH = 7
 CANVAS_MARGIN = 8
 # field, time and buttons stacked inside the ring this far apart; DONE sits in the lower gap
 STACK_GAP = 18
@@ -79,7 +81,8 @@ class CountdownCanvas(TimerCanvas):
         return self.theme['text']
 
     def get_radius(self, width, height):
-        return min(width * RING_RATIO, height / 2 - RING_PAD / 2, MAX_RADIUS)
+        pad = RING_PAD * self.zoom
+        return min(width * RING_RATIO, height / 2 - pad / 2, (MAX_DIAL * self.zoom - pad) / 2)
 
     def get_time_size(self, width, height):
         # scale from the ring so the text stays inside it when the window is wide
@@ -94,7 +97,7 @@ class CountdownCanvas(TimerCanvas):
         radius = self.get_radius(width, height)
         if radius < 24 or width <= 0 or height <= 0:
             return None
-        if (width, height) != self.ring_key:
+        if (width, height, self.zoom) != self.ring_key:
             bitmap = wx.Bitmap(width, height, 24)
             dc = wx.MemoryDC(bitmap)
             dc.SetBackground(wx.Brush(wx.Colour(self.theme['bg'])))
@@ -102,13 +105,13 @@ class CountdownCanvas(TimerCanvas):
             gc = wx.GraphicsContext.Create(dc)
             gc.SetAntialiasMode(wx.ANTIALIAS_DEFAULT)
             gc.SetBrush(wx.TRANSPARENT_BRUSH)
-            gc.SetPen(wx.Pen(wx.Colour(self.theme['rim']), 7))
+            gc.SetPen(wx.Pen(wx.Colour(self.theme['rim']), round(RING_WIDTH * self.zoom)))
             path = gc.CreatePath()
             path.AddArc(width / 2, height / 2, radius, 0, 6.2831853, True)
             gc.StrokePath(path)
             del gc
             dc.SelectObject(wx.NullBitmap)
-            self.ring_key, self.ring_bitmap = (width, height), bitmap
+            self.ring_key, self.ring_bitmap = (width, height, self.zoom), bitmap
         return self.ring_bitmap
 
     def draw(self, gc, width, height):
@@ -121,7 +124,7 @@ class CountdownCanvas(TimerCanvas):
         fraction = self.seconds / self.total if self.total > 0 else 0
         if fraction > 0:
             colour = theme['alert'] if self.seconds <= WARN_SECONDS else theme['accent']
-            gc.SetPen(wx.Pen(wx.Colour(colour), 7))
+            gc.SetPen(wx.Pen(wx.Colour(colour), round(RING_WIDTH * self.zoom)))
             path = gc.CreatePath()
             path.AddArc(cx, cy, radius, -1.5707963,
                         -1.5707963 + 6.2831853 * fraction, True)
@@ -134,7 +137,8 @@ class CountdownCanvas(TimerCanvas):
             gc.SetFont(font, wx.Colour(theme['alert']))
             done_height = gc.GetTextExtent('DONE')[1]
             self.draw_centered_text(gc, 'DONE', cx,
-                                    self.time_bottom + (STACK_GAP - done_height) / 2, font,
+                                    self.time_bottom + (STACK_GAP * self.zoom - done_height) / 2,
+                                    font,
                                     theme['alert'])
 
 
@@ -157,6 +161,7 @@ class FieldBox(Canvas):
         self.field.Bind(wx.EVT_CHAR, self.on_char)
         self.lit = False
         self.buttons = (self.minus, self.plus)
+        self.zoom = 1.0
         self.SetMinSize(wx.Size(self.WIDTH, self.HEIGHT))
         # hidden until the first paint tells where the time text ends
         self.Hide()
@@ -171,13 +176,20 @@ class FieldBox(Canvas):
         elif chr(code) in FIELD_CHARS:
             event.Skip()
 
+    def set_zoom(self, zoom):
+        if zoom != self.zoom:
+            self.zoom = zoom
+            self.field.SetFont(get_font(round(10 * zoom * 2) / 2))
+            self.SetMinSize(wx.Size(round(self.WIDTH * zoom), round(self.HEIGHT * zoom)))
+
     def on_size(self, event):
         width, height = self.GetClientSize()
-        size = height - self.PADDING * 2
-        self.minus.SetSize(self.PADDING, self.PADDING, size, size)
-        self.plus.SetSize(width - self.PADDING - size, self.PADDING, size, size)
+        padding = round(self.PADDING * self.zoom)
+        size = height - padding * 2
+        self.minus.SetSize(padding, padding, size, size)
+        self.plus.SetSize(width - padding - size, padding, size, size)
         # a taller single-line TextCtrl pins its text to the top, keep its own height
-        left = self.PADDING + size
+        left = padding + size
         text_height = self.field.GetBestSize()[1]
         self.field.SetSize(left, (height - text_height) // 2,
                            max(0, width - left * 2), text_height)
@@ -187,7 +199,7 @@ class FieldBox(Canvas):
         super().set_theme(theme)
         for button in self.buttons:
             button.set_theme(theme)
-        self.field.SetFont(get_font(10))
+        self.field.SetFont(get_font(round(10 * self.zoom * 2) / 2))
         self.apply_lit()
 
     def set_lit(self, lit):
@@ -208,9 +220,7 @@ class FieldBox(Canvas):
         return wx.Colour(fill) if self.lit else mix(fill, self.theme['bg'], FIELD_FADE)
 
     def draw(self, gc, width, height):
-        gc.SetPen(wx.TRANSPARENT_PEN)
-        gc.SetBrush(wx.Brush(self.get_fill()))
-        gc.DrawRoundedRectangle(0, 0, width, height, height / 2)
+        fill_rounded(gc, self.get_fill(), 0, 0, width, height, height // 2)
 
 
 def place(window, rect):
@@ -276,8 +286,14 @@ class CountdownBox(wx.Panel):
         if width <= 0:
             return event.Skip()
 
-        ring = min(MAX_DIAL,
-                   int((width - CANVAS_MARGIN * 2) * RING_RATIO * 2) + RING_PAD)
+        # the carousel pages' shared scale: the ring's limit, the field, the keys and gaps
+        zoom = get_page_scale(width, height)
+        if zoom != self.canvas.zoom:
+            self.canvas.zoom = zoom
+            self.fieldbox.set_zoom(zoom)
+            self.canvas.Refresh()
+        ring = min(round(MAX_DIAL * zoom),
+                   int((width - CANVAS_MARGIN * 2) * RING_RATIO * 2) + round(RING_PAD * zoom))
         target = max(0, min(ring, height - EDGE_GAP * 2))
         if self.canvas.GetMinSize()[1] != target:
             self.canvas.SetMinSize(wx.Size(-1, target))
@@ -354,20 +370,22 @@ class CountdownBox(wx.Panel):
         width, height = self.canvas.GetClientSize()
         cx, cy = width / 2, height / 2
         top = height - bottom
+        zoom = self.canvas.zoom
+        stack, gap = round(STACK_GAP * zoom), round(BUTTON_GAP * zoom)
         size = self.fieldbox.GetMinSize()
         place(self.fieldbox, wx.Rect((width - size[0]) // 2,
-                                     int(top) - STACK_GAP - size[1], *size))
+                                     int(top) - stack - size[1], *size))
 
         # as large as the ring's width under the time allows
-        inner = self.canvas.get_radius(width, height) - RING_CLEARANCE
-        y = int(bottom) + STACK_GAP
-        side = ROUND_SIZE
-        while side > SMALLEST_BUTTON and (
+        inner = self.canvas.get_radius(width, height) - RING_CLEARANCE * zoom
+        y = int(bottom) + stack
+        side = round(ROUND_SIZE * zoom)
+        while side > SMALLEST_BUTTON * zoom and (
                 y + side - cy >= inner or
-                BUTTON_GAP + side > math.sqrt(inner ** 2 - (y + side - cy) ** 2)):
+                gap + side > math.sqrt(inner ** 2 - (y + side - cy) ** 2)):
             side -= 1
-        place(self.start_button, wx.Rect(int(cx - BUTTON_GAP - side), y, side, side))
-        place(self.reset_button, wx.Rect(int(cx + BUTTON_GAP), y, side, side))
+        place(self.start_button, wx.Rect(int(cx - gap - side), y, side, side))
+        place(self.reset_button, wx.Rect(int(cx + gap), y, side, side))
 
     def tick(self):
         if self.running:
