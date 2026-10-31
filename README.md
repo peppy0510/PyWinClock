@@ -13,7 +13,7 @@
 
 ## Screenshot
 
-![screenshot](/assets/images/screenshot-b259f997.webp)
+![clock](/assets/images/screenshot-b259f997.webp) ![stopwatch](/assets/images/screenshot-febd05a0.webp) ![countdown](/assets/images/screenshot-53b26706.webp)
 
 ## How to install
 
