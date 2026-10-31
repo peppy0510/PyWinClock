@@ -261,6 +261,87 @@ class ZoneSwitch(Pressable):
             draw_button(gc, self.theme, self.get_cell(index), name, state)
 
 
+EDGES = {}
+
+
+def get_edges(font, text, colour, back):
+    '''the first and last columns any ink reaches, faint ClearType edges too: a dim line's
+    end columns fall under half the contrast, which get_ink_span leaves out'''
+    key = (font.GetNativeFontInfoDesc(), text, colour, back)
+    if key not in EDGES:
+        dc = wx.MemoryDC(wx.Bitmap(1, 1))
+        gc = wx.GraphicsContext.Create(dc)
+        gc.SetFont(font, wx.Colour(colour))
+        width, height = (int(math.ceil(value)) for value in gc.GetTextExtent(text)[:2])
+        del gc
+        bitmap = wx.Bitmap(width + 40, height + 4, 24)
+        dc.SelectObject(bitmap)
+        ground = wx.Colour(back)
+        dc.SetBackground(wx.Brush(ground))
+        dc.Clear()
+        gc = wx.GraphicsContext.Create(dc)
+        gc.SetFont(font, wx.Colour(colour))
+        gc.DrawText(text, 20, 2)
+        del gc
+        dc.SelectObject(wx.NullBitmap)
+        image = bitmap.ConvertToImage()
+        base = (ground.Red(), ground.Green(), ground.Blue())
+
+        def is_inked(x):
+            return any(abs(image.GetRed(x, y) - base[0]) + abs(image.GetGreen(x, y) - base[1]) +
+                       abs(image.GetBlue(x, y) - base[2]) > 24 for y in range(height + 4))
+
+        columns = [x for x in range(width + 40) if is_inked(x)]
+        EDGES[key] = (columns[0] - 20, columns[-1] - 20) if columns else (0, width - 1)
+    return EDGES[key]
+
+
+class ClockText(Canvas):
+
+    '''a line of text centred by its ink, not its box, which leaves more blank after the
+    last character than before the first; the box's top kept as a StaticText's'''
+
+    def __init__(self, parent, theme, role, ticking=False):
+        super().__init__(parent, theme)
+        self.role = role
+        # a label that changes every second: its ink measured from its ends alone, a span
+        # kept per whole label would pile up
+        self.ticking = ticking
+        self.label = ''
+        self.font = get_font(10)
+        self.set_font(self.font)
+
+    def set_font(self, font):
+        self.font = font
+        dc = wx.MemoryDC(wx.Bitmap(1, 1))
+        dc.SetFont(font)
+        self.height = dc.GetTextExtent('0')[1]
+        self.SetMinSize(wx.Size(-1, self.height))
+        self.Refresh()
+
+    def set_label(self, label):
+        if label == self.label:
+            return False
+        self.label = label
+        self.Refresh()
+        return True
+
+    def draw(self, gc, width, height):
+        if not self.label:
+            return
+        colour = self.theme[self.role]
+        gc.SetFont(self.font, wx.Colour(colour))
+        back = self.theme['bg']
+        if self.ticking:
+            first, last = self.label[0], self.label[-1]
+            left = get_edges(self.font, first, colour, back)[0]
+            right = gc.GetTextExtent(self.label)[0] - gc.GetTextExtent(last)[0] + \
+                get_edges(self.font, last, colour, back)[1]
+        else:
+            left, right = get_edges(self.font, self.label, colour, back)
+        gc.DrawText(self.label, round((width - (right - left + 1)) / 2 - left), 0)
+
+
 class ClockBox(wx.Panel):
 
     use_24h = True
@@ -277,9 +358,8 @@ class ClockBox(wx.Panel):
         super().__init__(parent)
         self.on_zone = on_zone
         self.canvas = ClockCanvas(self, theme)
-        self.digital = wx.StaticText(self, label='')
-        self.datetext = wx.StaticText(self, label='')
-        self.datetext.SetFont(get_font(10))
+        self.digital = ClockText(self, theme, 'text', ticking=True)
+        self.datetext = ClockText(self, theme, 'dim')
         self.zone = ZoneSwitch(self, theme, self.on_switch)
 
         # the dial, one time under it and its zone picked below, centred on the page as one
@@ -287,8 +367,8 @@ class ClockBox(wx.Panel):
         self.head_gap = sizer.AddSpacer(0)
         sizer.Add(self.canvas, 0, wx.EXPAND)
         self.face_gap = sizer.AddSpacer(0)
-        sizer.Add(self.digital, 0, wx.ALIGN_CENTER)
-        self.date_item = sizer.Add(self.datetext, 0, wx.ALIGN_CENTER | wx.TOP, DATE_GAP)
+        sizer.Add(self.digital, 0, wx.EXPAND)
+        self.date_item = sizer.Add(self.datetext, 0, wx.EXPAND | wx.TOP, DATE_GAP)
         self.zone_item = sizer.Add(self.zone, 0, wx.ALIGN_CENTER | wx.TOP, SWITCH_GAP)
         self.SetSizer(sizer)
         self.Bind(wx.EVT_SIZE, self.on_size)
@@ -307,12 +387,11 @@ class ClockBox(wx.Panel):
     def measure_block(self, size):
         if size != self.digital_size:
             self.digital_size = size
-            self.digital.SetFont(get_font(size, bold=True))
+            self.digital.set_font(get_font(size, bold=True))
             dc = wx.MemoryDC(wx.Bitmap(1, 1))
             dc.SetFont(get_font(size, bold=True))
             self.digital_lead = dc.GetFontMetrics().internalLeading
-        block = self.digital.GetBestSize()[1] + self.date_item.GetBorder() + \
-            self.datetext.GetBestSize()[1]
+        block = self.digital.height + self.date_item.GetBorder() + self.datetext.height
         if self.utc_offered:
             block += self.zone_item.GetBorder() + self.zone.GetMinSize()[1]
         return block
@@ -322,7 +401,7 @@ class ClockBox(wx.Panel):
             return
         self.zoom = zoom
         # half points: the font cache stays small as the window is dragged larger
-        self.datetext.SetFont(get_font(round(10 * zoom * 2) / 2))
+        self.datetext.set_font(get_font(round(10 * zoom * 2) / 2))
         self.zone.set_scale(zoom)
         self.date_item.SetBorder(round(DATE_GAP * zoom))
         self.zone_item.SetBorder(round(SWITCH_GAP * zoom))
@@ -366,8 +445,8 @@ class ClockBox(wx.Panel):
         self.SetBackgroundColour(wx.Colour(theme['bg']))
         self.canvas.set_theme(theme)
         self.zone.set_theme(theme)
-        self.digital.SetForegroundColour(wx.Colour(theme['text']))
-        self.datetext.SetForegroundColour(wx.Colour(theme['dim']))
+        self.digital.set_theme(theme)
+        self.datetext.set_theme(theme)
         self.Refresh()
 
     def set_options(self, use_24h, utc_offered, preset, smooth):
@@ -404,12 +483,8 @@ class ClockBox(wx.Panel):
 
         changed = False
         for text, label in labels:
-            if text.GetLabel() != label:
-                text.SetLabel(label)
-                changed = True
+            changed = text.set_label(label) or changed
 
         self.canvas.now = now
-        if changed:
-            self.Layout()
         if changed or self.canvas.smooth:
             self.canvas.Refresh()

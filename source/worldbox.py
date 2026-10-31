@@ -32,6 +32,7 @@ from utilities import get_ink
 from utilities import get_page_scale
 from utilities import shade
 from weatherbox import draw_moon
+from weatherbox import get_icon_span
 from weatherbox import draw_sun
 
 
@@ -544,7 +545,7 @@ class CityList(Canvas):
             fill = draw_row_light(gc, theme, width, top, ROW_HEIGHT)
 
         middle = top + ROW_HEIGHT / 2
-        self.draw_phase(gc, MARGIN + PHASE_WIDTH / 2, middle, row['daylight'], fill)
+        self.draw_phase(gc, MARGIN, middle, row['daylight'], fill)
 
         right = width - MARGIN
         if self.editing:
@@ -570,9 +571,11 @@ class CityList(Canvas):
         else:
             self.draw_close(gc, cx, cy, colour, 3.4)
 
-    def draw_phase(self, gc, cx, cy, daylight, fill):
-        # the Weather page's sun and moon in one tone: colour here stood out among the names
+    def draw_phase(self, gc, left, cy, daylight, fill):
+        # the Weather page's sun and moon in one tone: colour here stood out among the names;
+        # their ink, not their box, starts on the side margin
         theme = self.theme
+        cx = left + get_icon_span('clear', daylight, PHASE_ICON, theme)[0]
         if daylight:
             draw_sun(gc, cx, cy, PHASE_ICON, theme['dim'])
         else:
@@ -1022,7 +1025,10 @@ class WorldBox(wx.Panel):
         rows = []
         pins = []
         utc_row = -1
-        for name in self.names:
+        # west to east by the offset now, not in the order they were added; the home last
+        names = sorted(self.names, key=lambda name: (
+            now.astimezone(ZoneInfo(CITY_BY_NAME[name][1])).utcoffset(), name))
+        for name in names:
             _, zone, latitude, longitude = CITY_BY_NAME[name]
             moment = now.astimezone(ZoneInfo(zone))
             rows.append({

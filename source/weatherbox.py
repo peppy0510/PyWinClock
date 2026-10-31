@@ -31,6 +31,7 @@ from utilities import get_ink_span
 from utilities import get_page_scale
 from utilities import get_settings_path
 from utilities import get_text_top
+from utilities import get_text_width
 from utilities import draw_card_rim
 from utilities import fill_rounded
 from utilities import mix
@@ -728,6 +729,20 @@ class WeatherBox(Canvas):
         except ValueError:
             return -1
 
+    def get_hour_reach(self, forecast, start, index, theme):
+        # half the widest thing an hour's column draws: its temperature, icon, rain and hour
+        texts = [(format_degrees(forecast.hour_temperatures[start + index]), get_font(10)),
+                 (self.get_hour_text(forecast.hours[start + index]) if index < HOURS else
+                  ('24' if self.use24h else '12am'), get_font(8))]
+        rain = forecast.hour_rain[start + index] if forecast.hour_rain else None
+        if rain is not None and rain >= SHOWERS:
+            texts.append((f'{round(rain)}%', get_font(8)))
+        halves = [get_text_width(font, text) / 2 for text, font in texts]
+        day = bool(forecast.hour_day[start + index]) if forecast.hour_day else True
+        kind = get_condition(forecast.hour_codes[start + index])[1]
+        halves.append(max(get_icon_span(kind, day, 18, theme)))
+        return max(halves)
+
     def draw_hours(self, gc, forecast, x, y, width):
         '''the shown day from 00 to 24; today marks the time now and dims the hours gone'''
         theme = self.theme
@@ -763,8 +778,12 @@ class WeatherBox(Canvas):
         # every 2 hours, every 3 in a narrow window
         step = next((step for step in HOUR_STEPS
                      if inner / (HOURS // step + 1) >= HOUR_ROOM), HOUR_STEPS[-1])
-        left = x + 14 + inner / ((HOURS // step + 1) * 2)
-        span = inner - (left - x - 14) * 2
+        # the first and last columns' widest ink, a label or icon, on the side margins
+        last = (end - start - 1) // step * step
+        reach_left, reach_right = (self.get_hour_reach(forecast, start, index, theme)
+                                   for index in (0, last))
+        left = x + 14 + reach_left
+        span = (inner - reach_left - reach_right) * HOURS / max(1, last)
         # the highest label clear of the title above it
         band_top, band_bottom = y + 52, y + 72
         # hours into the shown day: past its end for a day gone, before it for one to come
@@ -882,7 +901,10 @@ class WeatherBox(Canvas):
                              CARD_RADIUS - 2)
             colour = theme['dim'] if past else theme['text']
             code = forecast.day_codes[index] if index < len(forecast.day_codes) else None
-            draw_weather_icon(gc, get_condition(code)[1], x + 26, cy, DAY_ICON, theme,
+            # the icon's ink, not its box, on the side margin
+            kind = get_condition(code)[1]
+            draw_weather_icon(gc, kind, x + 14 + get_icon_span(kind, True, DAY_ICON, theme)[0], cy,
+                              DAY_ICON, theme,
                               fill or theme['face'])
 
             rain = forecast.day_rain[index] if index < len(forecast.day_rain) else None
@@ -907,7 +929,10 @@ class WeatherBox(Canvas):
                 gc.DrawText(note, left, note_top - note_ink[0])
 
             low, high = forecast.lows[index], forecast.highs[index]
-            self.draw_text(gc, format_degrees(high), bar_right + 8, cy, 10, colour, middle=True)
+            # the high's ink ends on the side margin, the bars end together before its column
+            high_text = format_degrees(high)
+            right = x + width - 14 - 1 - get_ink_span(get_font(10), high_text)[1]
+            self.draw_text(gc, high_text, right, cy, 10, colour, middle=True)
             # the low as the high: dim marks a day gone, not a lesser reading
             self.draw_text(gc, format_degrees(low), bar_left - 8, cy, 10, colour,
                            align='right', middle=True)
