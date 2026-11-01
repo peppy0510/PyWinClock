@@ -1,4 +1,6 @@
+pillow
 psutil
+pyinstaller
 pywin32
 tzdata
 wxpython

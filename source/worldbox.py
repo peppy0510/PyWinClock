@@ -27,6 +27,7 @@ from utilities import cut_corners
 from utilities import draw_card_rim
 from utilities import draw_text_in
 from utilities import fill_rounded
+from utilities import get_asset_path
 from utilities import get_font
 from utilities import get_ink
 from utilities import get_page_scale
@@ -73,8 +74,7 @@ ROW_INSET = 4
 
 
 def get_land():
-    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                        'assets', 'map', 'land.json')
+    path = get_asset_path('map', 'land.json')
     try:
         with open(path, encoding='utf-8') as file:
             data = json.load(file)
