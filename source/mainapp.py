@@ -45,10 +45,10 @@ DEFAULT_SIZE = (480, 720)
 MIN_SIZE = (360, 480)
 THEME_POLL = 2.0
 
-# the carousel's pages in order; all but the clock can be turned off in the settings
-PAGES = (('clock', 'Clock', 'clock'), ('world', 'World', 'globe'),
-         ('weather', 'Weather', 'weather'), ('stopwatch', 'Stopwatch', 'stopwatch'),
-         ('countdown', 'Countdown', 'countdown'))
+# the carousel's pages; the clock leads, the rest are ordered and turned off in the settings
+PAGES = {'clock': ('Clock', 'clock'), 'world': ('World', 'globe'),
+         'weather': ('Weather', 'weather'), 'stopwatch': ('Stopwatch', 'stopwatch'),
+         'countdown': ('Countdown', 'countdown')}
 SETTINGS_ITEM = ('Settings', 'settings')
 
 FRAME_STYLE = wx.DEFAULT_FRAME_STYLE & ~wx.CAPTION
@@ -268,7 +268,7 @@ class MainFrame(wx.Frame):
 
     def apply_pages(self):
         cards = self.settingsbox.pages
-        names = [name for name, _, _ in PAGES if name not in cards or cards[name].GetValue()]
+        names = ['clock'] + [name for name in self.settingsbox.order if cards[name].GetValue()]
         pages = [self.boxes[name] for name in names] + [self.settingsbox]
         if pages == self.shown_pages:
             return
@@ -286,8 +286,7 @@ class MainFrame(wx.Frame):
             for page in pages:
                 self.book.AddPage(page, '')
             self.book.ChangeSelection(index)
-            self.sidemenu.items = tuple((label, icon) for name, label, icon in PAGES
-                                        if name in names) + (None, SETTINGS_ITEM)
+            self.sidemenu.items = tuple(PAGES[name] for name in names) + (None, SETTINGS_ITEM)
             # past the separator for the settings
             self.sidemenu.set_selection(index if index < count else index + 1)
             self.sidemenu.place(TitleBar.HEIGHT)
@@ -428,6 +427,7 @@ class MainFrame(wx.Frame):
             'clock_preset': self.settingsbox.preset.GetValue(),
             'smooth_second': self.settingsbox.smooth.GetValue(),
             **{f'page_{key}': card.GetValue() for key, card in self.settingsbox.pages.items()},
+            'page_order': list(self.settingsbox.order),
             'accent': self.settingsbox.accent_choice.GetValue(),
             'cities': list(self.worldbox.names),
             'home_city': self.worldbox.home,

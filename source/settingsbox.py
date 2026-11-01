@@ -13,6 +13,7 @@ import wx
 from panels import AboutCard
 from panels import ActionCard
 from panels import ChoiceCard
+from panels import LayoutCard
 from panels import Panel
 from panels import ScrollArea
 from panels import SettingCard
@@ -35,6 +36,9 @@ PAGES = (('world', 'World', 'Other cities and their time on a map'),
          ('countdown', 'Countdown', 'A timer that rings at zero'))
 SHORTCUT_NOTE = 'Put a shortcut in the Start menu'
 
+DRAG_FRAME_MS = 16
+DRAG_EASE = 0.35
+
 
 class SettingsBox(ScrollArea):
 
@@ -42,6 +46,7 @@ class SettingsBox(ScrollArea):
         super().__init__(parent, theme)
         self.folds = folds if folds is not None else set()
         self.on_folds = on_fold
+        self.on_change = on_change
         board = self.content
 
         def toggle(label, description):
@@ -50,8 +55,13 @@ class SettingsBox(ScrollArea):
         self.use24h = toggle('24-hour clock', 'Show the time as 00-23')
         self.useutc = toggle('UTC', 'Offer UTC beside local time on the clock page')
         self.offset_choice = ChoiceCard(board, theme, 'Time difference',
-                                 'On World, from the time here or from UTC', OFFSETS, on_change)
-        self.pages = {key: toggle(label, note) for key, label, note in PAGES}
+                                        'On World, from the time here or from UTC', OFFSETS,
+                                        on_change)
+        self.pages = {key: LayoutCard(board, theme, label, note, on_change, self.on_drag)
+                      for key, label, note in PAGES}
+        self.drag = None
+        self.drag_timer = wx.Timer(self)
+        self.Bind(wx.EVT_TIMER, self.on_drag_frame, self.drag_timer)
         self.ontop = toggle('Always on top', 'Keep the window above others')
         self.tray = toggle('Tray icon', 'Show an icon in the notification area')
         self.close_to_tray = toggle('Close to tray',
@@ -73,6 +83,8 @@ class SettingsBox(ScrollArea):
         self.offset_choice.SetValue(settings.get('world_offset', 'local'))
         for key, card in self.pages.items():
             card.SetValue(settings.get(f'page_{key}', True))
+        order = [key for key in settings.get('page_order', []) if key in self.pages]
+        self.order = order + [key for key in self.pages if key not in order]
         self.ontop.SetValue(settings.get('on_top', False))
         self.tray.SetValue(settings.get('tray_icon', True))
         self.close_to_tray.SetValue(settings.get('close_to_tray', False))
@@ -82,11 +94,15 @@ class SettingsBox(ScrollArea):
         self.theme_choice.SetValue(settings.get('theme', 'dark'))
         self.accent_choice.SetValue(settings.get('accent', 'blue'))
 
+        self.pages_sizer = wx.BoxSizer(wx.VERTICAL)
+        self.pages_panel = Panel(board, theme, 'settings.pages', 'Pages', (self.pages_sizer,),
+                                 self.folds, self.on_fold, subtitle='Drag to reorder',
+                                 rows=self.get_page_rows())
+        self.fill_pages()
         self.set_panels([
             Panel(board, theme, 'settings.clock', 'Clock',
                   (self.use24h, self.useutc, self.offset_choice), self.folds, self.on_fold),
-            Panel(board, theme, 'settings.pages', 'Pages', tuple(self.pages.values()),
-                  self.folds, self.on_fold),
+            self.pages_panel,
             Panel(board, theme, 'settings.window', 'Window',
                   (self.ontop, self.tray, self.close_to_tray, self.autohide, self.shortcut),
                   self.folds, self.on_fold),
@@ -123,6 +139,76 @@ class SettingsBox(ScrollArea):
         self.relayout_panels()
         if self.on_folds:
             self.on_folds()
+
+    def get_page_rows(self):
+        return [self.pages[key] for key in self.order]
+
+    def fill_pages(self):
+        self.pages_sizer.Clear()
+        for key in self.order:
+            self.pages_sizer.Add(self.pages[key], 0, wx.EXPAND)
+        self.pages_panel.set_rows(self.get_page_rows())
+        self.pages_panel.apply_fold()
+
+    def on_drag(self, card, phase, screen_y):
+        key = next(name for name, value in self.pages.items() if value is card)
+        if phase == 'start':
+            slots = [self.pages[name].GetPosition().y for name in self.order]
+            self.drag = {
+                'key': key, 'order': list(self.order), 'slots': slots,
+                'x': card.GetPosition().x,
+                'grab': self.content.ScreenToClient(wx.Point(0, screen_y)).y - card.GetPosition().y,
+                'y': {name: float(self.pages[name].GetPosition().y) for name in self.order},
+                'mouse': screen_y, 'dropped': False,
+            }
+            card.Raise()
+            self.drag_timer.Start(DRAG_FRAME_MS)
+        elif phase == 'move' and self.drag:
+            self.drag['mouse'] = screen_y
+        elif phase == 'drop' and self.drag:
+            self.drag['mouse'] = screen_y
+            self.drag['dropped'] = True
+
+    def on_drag_frame(self, event):
+        drag = self.drag
+        if not drag:
+            self.drag_timer.Stop()
+            return
+        slots = drag['slots']
+        stride = (slots[-1] - slots[0]) / float(len(slots) - 1) if len(slots) > 1 else 1
+        key = drag['key']
+
+        top = self.content.ScreenToClient(wx.Point(0, drag['mouse'])).y - drag['grab']
+        top = min(max(top, slots[0]), slots[-1])
+        index = int(round((top - slots[0]) / stride)) if stride else 0
+        order = [name for name in drag['order'] if name != key]
+        order.insert(index, key)
+
+        settled = True
+        for position, name in enumerate(order):
+            if name == key and not drag['dropped']:
+                drag['y'][name] = top
+            else:
+                target = slots[position]
+                drag['y'][name] += (target - drag['y'][name]) * DRAG_EASE
+                if abs(target - drag['y'][name]) < 0.5:
+                    drag['y'][name] = target
+                else:
+                    settled = False
+            self.pages[name].SetPosition(wx.Point(drag['x'], int(round(drag['y'][name]))))
+        self.pages_panel.set_rows([self.pages[name] for name in order])
+
+        if drag['dropped'] and settled:
+            self.drag_timer.Stop()
+            self.drag = None
+            changed = order != self.order
+            self.order = order
+            self.fill_pages()
+            self.content.Layout()
+            self.fit()
+            self.Refresh()
+            if changed:
+                self.on_change()
 
     def apply_theme(self, theme):
         self.set_theme(theme)
