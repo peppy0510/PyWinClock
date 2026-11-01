@@ -45,13 +45,13 @@ DEFAULT_SIZE = (480, 720)
 MIN_SIZE = (360, 480)
 THEME_POLL = 2.0
 
-MENU_ITEMS = (('Clock', 'clock'), ('World', 'globe'), ('Weather', 'weather'),
-              ('Stopwatch', 'stopwatch'), ('Countdown', 'countdown'), None,
-              ('Settings', 'settings'))
+# the carousel's pages in order; all but the clock can be turned off in the settings
+PAGES = (('clock', 'Clock', 'clock'), ('world', 'World', 'globe'),
+         ('weather', 'Weather', 'weather'), ('stopwatch', 'Stopwatch', 'stopwatch'),
+         ('countdown', 'Countdown', 'countdown'))
+SETTINGS_ITEM = ('Settings', 'settings')
 
 FRAME_STYLE = wx.DEFAULT_FRAME_STYLE & ~wx.CAPTION
-
-CAROUSEL_PAGES = 5
 
 MIN_VISIBLE_WIDTH = 120
 MIN_VISIBLE_HEIGHT = 32
@@ -119,15 +119,17 @@ class MainFrame(wx.Frame):
         self.settings_folds = set(settings.get('settings_folded', []))
         self.settingsbox = SettingsBox(self.book, theme, settings, self.on_settings,
                                        self.settings_folds, self.store_settings)
-        for page in (self.clockbox, self.worldbox, self.weatherbox, self.stopwatchbox,
-                     self.countdownbox, self.settingsbox):
-            self.book.AddPage(page, '')
+        self.boxes = {'clock': self.clockbox, 'world': self.worldbox,
+                      'weather': self.weatherbox, 'stopwatch': self.stopwatchbox,
+                      'countdown': self.countdownbox}
+        # filled by apply_pages from the settings
+        self.shown_pages = []
 
         self.titlebar = TitleBar(self, theme, self.on_menu, self.toggle_maximize)
-        self.sidemenu = SideMenu(self, theme, MENU_ITEMS, self.on_select)
+        self.sidemenu = SideMenu(self, theme, (SETTINGS_ITEM,), self.on_select)
         apply_clip_siblings(self.book)
-        self.dots = PageDots(self, theme, CAROUSEL_PAGES, self.on_dot)
-        self.carousel = Carousel(self, self.book, CAROUSEL_PAGES, self.on_carousel, theme)
+        self.dots = PageDots(self, theme, len(PAGES), self.on_dot)
+        self.carousel = Carousel(self, self.book, len(PAGES), self.on_carousel, theme)
 
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(self.titlebar, 0, wx.EXPAND)
@@ -224,7 +226,7 @@ class MainFrame(wx.Frame):
 
     def show_dots(self, index):
         self.dots.set_current(index)
-        shown = index < CAROUSEL_PAGES
+        shown = self.carousel.count > 1 and index < self.carousel.count
         if self.dots.IsShown() != shown:
             self.dots.Show(shown)
             self.Layout()
@@ -261,12 +263,49 @@ class MainFrame(wx.Frame):
     def on_clock_zone(self, use_utc):
         self.store_settings()
 
+    def is_page_on(self, name):
+        return self.boxes[name] in self.shown_pages
+
+    def apply_pages(self):
+        cards = self.settingsbox.pages
+        names = [name for name, _, _ in PAGES if name not in cards or cards[name].GetValue()]
+        pages = [self.boxes[name] for name in names] + [self.settingsbox]
+        if pages == self.shown_pages:
+            return
+        current = self.book.GetCurrentPage()
+        index = pages.index(current) if current in pages else 0
+        self.shown_pages = pages
+        count = len(names)
+        self.Freeze()
+        try:
+            # a removed page stays a child of the book, shown unless hidden
+            while self.book.GetPageCount():
+                self.book.RemovePage(0)
+            for page in pages + list(self.boxes.values()):
+                page.Hide()
+            for page in pages:
+                self.book.AddPage(page, '')
+            self.book.ChangeSelection(index)
+            self.sidemenu.items = tuple((label, icon) for name, label, icon in PAGES
+                                        if name in names) + (None, SETTINGS_ITEM)
+            # past the separator for the settings
+            self.sidemenu.set_selection(index if index < count else index + 1)
+            self.sidemenu.place(TitleBar.HEIGHT)
+            self.sidemenu.Refresh()
+            self.dots.set_count(count)
+            self.carousel.set_count(count)
+            self.show_dots(index)
+        finally:
+            self.Thaw()
+
     def on_settings(self):
+        self.apply_pages()
         self.clockbox.set_options(self.settingsbox.use24h.GetValue(),
                                   self.settingsbox.useutc.GetValue(),
                                   self.settingsbox.preset.GetValue(),
                                   self.settingsbox.smooth.GetValue())
-        self.worldbox.set_options(self.settingsbox.use24h.GetValue())
+        self.worldbox.set_options(self.settingsbox.use24h.GetValue(),
+                                  self.settingsbox.offset_choice.GetValue())
         self.weatherbox.set_options(self.settingsbox.use24h.GetValue())
 
         style = self.GetWindowStyle()
@@ -310,17 +349,21 @@ class MainFrame(wx.Frame):
 
     def get_tray_items(self):
         stopwatch, countdown = self.stopwatchbox, self.countdownbox
-        items = [('Stop stopwatch' if stopwatch.running else 'Start stopwatch', stopwatch.on_start),
-                 ('Reset stopwatch', stopwatch.on_reset if stopwatch.get_elapsed() > 0 else None)]
-        if countdown.running:
+        items = []
+        if self.is_page_on('stopwatch'):
+            items += [('Stop stopwatch' if stopwatch.running else 'Start stopwatch',
+                       stopwatch.on_start),
+                      ('Reset stopwatch',
+                       stopwatch.on_reset if stopwatch.get_elapsed() > 0 else None)]
+        if self.is_page_on('countdown') and countdown.running:
             items.append(('Pause countdown', countdown.on_start))
         return items
 
     def update_tray(self):
         lines = []
-        if self.stopwatchbox.running:
+        if self.is_page_on('stopwatch') and self.stopwatchbox.running:
             lines.append(f'Stopwatch {format_hms(self.stopwatchbox.get_elapsed())}')
-        if self.countdownbox.running:
+        if self.is_page_on('countdown') and self.countdownbox.running:
             remaining = max(0.0, self.countdownbox.deadline - time.perf_counter())
             lines.append(f'Countdown {format_hms(remaining)}')
         self.tray.set_tip('\n'.join(lines))
@@ -377,12 +420,14 @@ class MainFrame(wx.Frame):
             'on_top': self.settingsbox.ontop.GetValue(),
             'use_24h': self.settingsbox.use24h.GetValue(),
             'use_utc': self.settingsbox.useutc.GetValue(),
+            'world_offset': self.settingsbox.offset_choice.GetValue(),
             'clock_zone': 'utc' if self.clockbox.use_utc else 'local',
             'tray_icon': self.settingsbox.tray.GetValue(),
             'close_to_tray': self.settingsbox.close_to_tray.GetValue(),
             'auto_hide_menu': self.settingsbox.autohide.GetValue(),
             'clock_preset': self.settingsbox.preset.GetValue(),
             'smooth_second': self.settingsbox.smooth.GetValue(),
+            **{f'page_{key}': card.GetValue() for key, card in self.settingsbox.pages.items()},
             'accent': self.settingsbox.accent_choice.GetValue(),
             'cities': list(self.worldbox.names),
             'home_city': self.worldbox.home,

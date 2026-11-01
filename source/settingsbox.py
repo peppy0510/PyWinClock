@@ -27,6 +27,12 @@ from utilities import get_asset_path
 CLOCK_PRESETS = (('classic', 'Classic'), ('minimal', 'Minimal'))
 THEMES = (('auto', 'Auto'), ('light', 'Light'), ('dark', 'Dark'))
 ACCENTS = (('blue', 'Blue'), ('red', 'Red'))
+OFFSETS = (('local', 'Local'), ('utc', 'UTC'))
+# the clock page is always there
+PAGES = (('world', 'World', 'Other cities and their time on a map'),
+         ('weather', 'Weather', 'Forecast for the home city picked on World'),
+         ('stopwatch', 'Stopwatch', 'Laps to a hundredth of a second'),
+         ('countdown', 'Countdown', 'A timer that rings at zero'))
 SHORTCUT_NOTE = 'Put a shortcut in the Start menu'
 
 
@@ -43,6 +49,9 @@ class SettingsBox(ScrollArea):
 
         self.use24h = toggle('24-hour clock', 'Show the time as 00-23')
         self.useutc = toggle('UTC', 'Offer UTC beside local time on the clock page')
+        self.offset_choice = ChoiceCard(board, theme, 'Time difference',
+                                 'On World, from the time here or from UTC', OFFSETS, on_change)
+        self.pages = {key: toggle(label, note) for key, label, note in PAGES}
         self.ontop = toggle('Always on top', 'Keep the window above others')
         self.tray = toggle('Tray icon', 'Show an icon in the notification area')
         self.close_to_tray = toggle('Close to tray',
@@ -61,6 +70,9 @@ class SettingsBox(ScrollArea):
 
         self.use24h.SetValue(settings.get('use_24h', True))
         self.useutc.SetValue(settings.get('use_utc', False))
+        self.offset_choice.SetValue(settings.get('world_offset', 'local'))
+        for key, card in self.pages.items():
+            card.SetValue(settings.get(f'page_{key}', True))
         self.ontop.SetValue(settings.get('on_top', False))
         self.tray.SetValue(settings.get('tray_icon', True))
         self.close_to_tray.SetValue(settings.get('close_to_tray', False))
@@ -71,7 +83,9 @@ class SettingsBox(ScrollArea):
         self.accent_choice.SetValue(settings.get('accent', 'blue'))
 
         self.set_panels([
-            Panel(board, theme, 'settings.clock', 'Clock', (self.use24h, self.useutc),
+            Panel(board, theme, 'settings.clock', 'Clock',
+                  (self.use24h, self.useutc, self.offset_choice), self.folds, self.on_fold),
+            Panel(board, theme, 'settings.pages', 'Pages', tuple(self.pages.values()),
                   self.folds, self.on_fold),
             Panel(board, theme, 'settings.window', 'Window',
                   (self.ontop, self.tray, self.close_to_tray, self.autohide, self.shortcut),

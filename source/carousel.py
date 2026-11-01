@@ -205,6 +205,11 @@ class PageDots(Canvas):
         self.Bind(wx.EVT_MOTION, self.on_motion)
         self.Bind(wx.EVT_LEAVE_WINDOW, lambda event: self.set_hovered(-1))
 
+    def set_count(self, count):
+        self.count = count
+        self.hovered = -1
+        self.Refresh()
+
     def set_current(self, index):
         if index != self.current:
             self.current = index
@@ -279,6 +284,15 @@ class Carousel(wx.EventFilter):
         self.drawn.clear()
         self.slide.set_theme(theme)
 
+    def set_count(self, count):
+        # the book is refilled, so its indices name other pages now
+        self.count = count
+        self.drawn.clear()
+
+    def is_on(self):
+        # a single page has nowhere to slide to
+        return self.count > 1 and self.current() < self.count
+
     def current(self):
         return self.book.GetSelection()
 
@@ -293,7 +307,7 @@ class Carousel(wx.EventFilter):
     def is_page(self, window):
         # not a text field: a drag there selects text
         page = self.book.GetCurrentPage()
-        if self.current() >= self.count or isinstance(window, wx.TextCtrl):
+        if not self.is_on() or isinstance(window, wx.TextCtrl):
             return False
         while window is not None:
             if window is page:
@@ -357,7 +371,7 @@ class Carousel(wx.EventFilter):
         self.slide.Update()
 
     def begin_drag(self, origin):
-        if not wx.GetMouseState().LeftIsDown() or self.current() >= self.count:
+        if not wx.GetMouseState().LeftIsDown() or not self.is_on():
             return
         self.dragging = True
         self.origin = origin
@@ -408,7 +422,7 @@ class Carousel(wx.EventFilter):
 
     def go_to(self, index):
         current = self.current()
-        if index == current or current >= self.count or self.animation is not None:
+        if index == current or not self.is_on() or self.animation is not None:
             return
         step = 1 if (index - current) % self.count <= self.count // 2 else -1
         self.slide.pictures = {0: self.take(current), step: self.take(index)}

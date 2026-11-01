@@ -812,6 +812,8 @@ class WorldBox(wx.Panel):
         if self.home not in CITY_BY_NAME:
             self.home = None
         self.use24h = True
+        # 'local' tells each city from the time here, 'utc' from UTC
+        self.offset_basis = 'local'
         self.editing = False
         self.picking_home = False
         self.stamp = None
@@ -982,10 +984,12 @@ class WorldBox(wx.Panel):
             self.refresh_rows()
             self.on_change()
 
-    def set_options(self, use24h):
-        if use24h != self.use24h:
+    def set_options(self, use24h, offset_basis):
+        if (use24h, offset_basis) != (self.use24h, self.offset_basis):
             self.use24h = use24h
+            self.offset_basis = offset_basis
             self.refresh_rows()
+            self.refresh_picker()
 
     def get_time_text(self, moment):
         # %#I drops the leading zero (MSVC strftime), as the clock page's 12-hour time
@@ -997,24 +1001,33 @@ class WorldBox(wx.Panel):
         days = (moment.date() - local.date()).days
         return {0: 'Today', -1: 'Yesterday', 1: 'Tomorrow'}.get(days, moment.strftime('%b %d'))
 
-    def get_shift_text(self, minutes, unit=''):
+    def get_shift_text(self, minutes):
         sign = '-' if minutes < 0 else '+'
         hours, rest = divmod(abs(minutes), 60)
         rest = f' {int(rest):02d}m' if rest else ''
-        return f'{unit}{sign}{int(hours)}h{rest}'
+        return f'{sign}{int(hours)}h{rest}'
+
+    def get_utc_text(self, minutes):
+        # as the clock page writes it
+        sign = '-' if minutes < 0 else '+'
+        hours, rest = divmod(abs(minutes), 60)
+        return f'UTC{sign}{int(hours):02d}:{int(rest):02d}'
 
     def get_detail_text(self, moment, local, home=False):
-        if home:
-            minutes = round(moment.utcoffset().total_seconds() / 60)
-            parts = [self.get_shift_text(minutes, 'UTC')]
+        parts = [self.get_day_text(moment, local)]
+        if self.offset_basis == 'utc':
+            parts.append(self.get_utc_text(round(moment.utcoffset().total_seconds() / 60)))
+        elif home:
+            parts.append(LOCAL)
         else:
             minutes = round((moment.utcoffset() - local.utcoffset()).total_seconds() / 60)
-            parts = [self.get_day_text(moment, local),
-                     self.get_shift_text(minutes) if minutes else 'Same time']
+            parts.append(self.get_shift_text(minutes) if minutes else 'Same time')
         # zones without an abbreviation report an offset like +04, which repeats the shift
         abbreviation = moment.tzname() or ''
         if abbreviation[:1].isalpha() and abbreviation != 'UTC':
             parts.append(abbreviation)
+        if home and self.offset_basis == 'utc':
+            parts.append(LOCAL)
         return ' \u00b7 '.join(parts)
 
     def refresh_rows(self):
@@ -1025,45 +1038,40 @@ class WorldBox(wx.Panel):
         rows = []
         pins = []
         utc_row = -1
-        # west to east by the offset now, not in the order they were added; the home last
-        names = sorted(self.names, key=lambda name: (
-            now.astimezone(ZoneInfo(CITY_BY_NAME[name][1])).utcoffset(), name))
-        for name in names:
-            _, zone, latitude, longitude = CITY_BY_NAME[name]
-            moment = now.astimezone(ZoneInfo(zone))
-            rows.append({
-                'name': name,
-                'label': name,
-                'time': self.get_time_text(moment),
-                'detail': self.get_detail_text(moment, local),
-                'daylight': is_daylight(latitude, longitude, declination, sun_longitude),
-                'fixed': False,
-            })
-            if zone != 'UTC':
-                pins.append((longitude, latitude, len(rows) - 1))
+        # west to east by the offset now, not in the order they were added; the home among them
+        entries = [(name, False) for name in self.names] + [(self.home or LOCAL, True)]
+
+        def get_offset(entry):
+            name, home = entry
+            if home:
+                return local.utcoffset()
+            return now.astimezone(ZoneInfo(CITY_BY_NAME[name][1])).utcoffset()
+
+        for name, home in sorted(entries, key=lambda entry: (get_offset(entry), entry[0])):
+            if name == LOCAL:
+                zone, daylight = None, 6 <= local.hour < 18
+                detail = self.get_day_text(local, local)
+                if self.offset_basis == 'utc':
+                    detail += ' \u00b7 ' + self.get_utc_text(
+                        round(local.utcoffset().total_seconds() / 60))
             else:
+                _, zone, latitude, longitude = CITY_BY_NAME[name]
+                moment = now.astimezone(ZoneInfo(zone))
+                daylight = is_daylight(latitude, longitude, declination, sun_longitude)
+                detail = self.get_detail_text(moment, local, home)
+            rows.append({
+                'name': LOCAL if home else name,
+                'label': name,
+                # the home row keeps this PC's clock
+                'time': self.get_time_text(local if home else moment),
+                'detail': detail,
+                'daylight': daylight,
+                'fixed': home,
+            })
+            if zone == 'UTC' and not home:
                 utc_row = len(rows) - 1
-
-        daylight = 6 <= local.hour < 18
-        label = LOCAL
-        detail = 'Local time \u00b7 ' + self.get_shift_text(
-            round(local.utcoffset().total_seconds() / 60), 'UTC')
-        if self.home:
-            _, zone, latitude, longitude = CITY_BY_NAME[self.home]
-            moment = now.astimezone(ZoneInfo(zone))
-            daylight = is_daylight(latitude, longitude, declination, sun_longitude)
-            label = self.home
-            detail = 'Local time \u00b7 ' + self.get_detail_text(moment, local, True)
-            pins.append((longitude, latitude, len(rows)))
-
-        rows.append({
-            'name': LOCAL,
-            'label': label,
-            'time': self.get_time_text(local),
-            'detail': detail,
-            'daylight': daylight,
-            'fixed': True,
-        })
+            elif zone is not None:
+                pins.append((longitude, latitude, len(rows) - 1))
 
         self.map.moment = now
         self.map.set_pins(pins, utc_row)
