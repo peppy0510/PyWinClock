@@ -29,6 +29,7 @@ from utilities import apply_accent
 from utilities import apply_clip_siblings
 from utilities import apply_no_caption
 from utilities import apply_titlebar_theme
+from utilities import format_hms
 from utilities import get_asset_path
 from utilities import get_frame_margins
 from utilities import is_windows_dark
@@ -40,7 +41,8 @@ from utilities import save_settings
 TICK_INTERVAL = 50
 # a running timer's hundredths: at 50 ms they stepped by 5, the last digit only ever two
 RUNNING_INTERVAL = 16
-DEFAULT_SIZE = (440, 640)
+DEFAULT_SIZE = (480, 720)
+MIN_SIZE = (360, 480)
 THEME_POLL = 2.0
 
 MENU_ITEMS = (('Clock', 'clock'), ('World', 'globe'), ('Weather', 'weather'),
@@ -94,6 +96,7 @@ class MainFrame(wx.Frame):
         super().__init__(None, title=APP_NAME, size=wx.Size(*DEFAULT_SIZE),
                          style=FRAME_STYLE)
         apply_no_caption(self)
+        self.SetMinSize(wx.Size(*MIN_SIZE))
 
         self.theme_name = self.resolve_theme(settings.get('theme', 'dark'))
         self.accent_name = settings.get('accent', 'blue')
@@ -295,6 +298,33 @@ class MainFrame(wx.Frame):
         self.Raise()
         self.SetFocus()
 
+    def hide_window(self):
+        if self.restore_bounds is not None:
+            self.stored_rect = list(self.restore_bounds)
+        elif self.IsIconized() is False and self.IsMaximized() is False:
+            self.stored_rect = list(self.GetRect())
+        self.store_settings()
+        # a second launch may have shown the window behind wx's back
+        self.Show(True)
+        self.Hide()
+
+    def get_tray_items(self):
+        stopwatch, countdown = self.stopwatchbox, self.countdownbox
+        items = [('Stop stopwatch' if stopwatch.running else 'Start stopwatch', stopwatch.on_start),
+                 ('Reset stopwatch', stopwatch.on_reset if stopwatch.get_elapsed() > 0 else None)]
+        if countdown.running:
+            items.append(('Pause countdown', countdown.on_start))
+        return items
+
+    def update_tray(self):
+        lines = []
+        if self.stopwatchbox.running:
+            lines.append(f'Stopwatch {format_hms(self.stopwatchbox.get_elapsed())}')
+        if self.countdownbox.running:
+            remaining = max(0.0, self.countdownbox.deadline - time.perf_counter())
+            lines.append(f'Countdown {format_hms(remaining)}')
+        self.tray.set_tip('\n'.join(lines))
+
     @staticmethod
     def resolve_theme(choice):
         if choice == 'auto':
@@ -337,6 +367,8 @@ class MainFrame(wx.Frame):
                    self.GetScreenRect().Contains(wx.GetMousePosition()))
         self.titlebar.set_visible(visible)
         self.titlebar.set_menu_open(self.sidemenu.is_open())
+        if self.tray is not None:
+            self.update_tray()
         paint_now(self)
 
     def store_settings(self):
@@ -362,14 +394,7 @@ class MainFrame(wx.Frame):
         if (self.tray is not None and self.settingsbox.close_to_tray.GetValue()
                 and not self.quitting and event.CanVeto()):
             event.Veto()
-            if self.restore_bounds is not None:
-                self.stored_rect = list(self.restore_bounds)
-            elif self.IsIconized() is False and self.IsMaximized() is False:
-                self.stored_rect = list(self.GetRect())
-            self.store_settings()
-            # a second launch may have shown the window behind wx's back
-            self.Show(True)
-            self.Hide()
+            self.hide_window()
             return
         self.pacer.running = False
         # its filter sees every event: removed before the windows go
