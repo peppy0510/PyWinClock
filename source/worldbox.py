@@ -53,6 +53,8 @@ ROW_HEIGHT = 52
 ROW_GAP = 0
 ROW_STRIDE = ROW_HEIGHT + ROW_GAP
 MARGIN = 14
+# between the cards, under the outer margin so they read as one group
+GAP = 10
 # the map and the list stop growing here and stay centred, as the other pages' dial
 # the Weather page's width too
 COLUMN_WIDTH = 462
@@ -844,7 +846,7 @@ class WorldBox(wx.Panel):
 
         column = wx.BoxSizer(wx.VERTICAL)
         column.Add(self.map, 0, wx.EXPAND)
-        self.map_gap = column.AddSpacer(MARGIN)
+        self.map_gap = column.AddSpacer(GAP)
         column.Add(self.list, 0, wx.EXPAND)
         row = wx.BoxSizer(wx.HORIZONTAL)
         row.AddStretchSpacer()
@@ -865,7 +867,7 @@ class WorldBox(wx.Panel):
         self.results = CityPicker(panel, theme, self.on_pick)
 
         column = wx.BoxSizer(wx.VERTICAL)
-        self.search_gap = column.Add(self.search, 0, wx.EXPAND | wx.BOTTOM, MARGIN)
+        self.search_gap = column.Add(self.search, 0, wx.EXPAND | wx.BOTTOM, GAP)
         column.Add(self.results, 1, wx.EXPAND)
         row = wx.BoxSizer(wx.HORIZONTAL)
         row.AddStretchSpacer()
@@ -899,9 +901,10 @@ class WorldBox(wx.Panel):
         self.map.Refresh()
         self.toolbox.set_zoom(zoom)
         self.search.set_zoom(zoom)
-        margin = round(MARGIN * zoom)
-        self.map_gap.AssignSpacer(wx.Size(0, margin))
-        for item in (self.browse_margin, self.search_gap, self.picker_margin):
+        margin, gap = round(MARGIN * zoom), round(GAP * zoom)
+        self.map_gap.AssignSpacer(wx.Size(0, gap))
+        self.search_gap.SetBorder(gap)
+        for item in (self.browse_margin, self.picker_margin):
             item.SetBorder(margin)
         self.place_toolbox()
 
@@ -916,7 +919,7 @@ class WorldBox(wx.Panel):
         map_height = int(width / ASPECT)
         # as tall as its rows, whole rows when the window is shorter
         stride = ROW_STRIDE * zoom
-        room = int((height - margin * 3 - map_height) // stride * stride)
+        room = int((height - margin * 2 - round(GAP * zoom) - map_height) // stride * stride)
         list_height = max(math.ceil(stride), min(math.ceil(len(self.list.rows) * stride), room))
         sizes = (wx.Size(width, map_height), wx.Size(width, list_height), wx.Size(width, -1))
         if sizes == (self.map.GetMinSize(), self.list.GetMinSize(), self.results.GetMinSize()):

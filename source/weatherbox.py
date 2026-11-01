@@ -49,7 +49,7 @@ TIMEOUT = 10
 COLUMN_WIDTH = PAGE_COLUMN
 # around and between the cards, as the World page's
 MARGIN = 14
-GAP = 14
+GAP = 10
 # the card for now: three columns, each centred on its middle; the cards' ink, cap tops
 # to baselines, keeps 14 px from their edges above and below, as their text does at the sides
 NOW_HEIGHT = 77
@@ -597,7 +597,8 @@ class WeatherBox(Canvas):
 
     def draw(self, gc, width, height):
         theme = self.theme
-        column = min(COLUMN_WIDTH, width - MARGIN * 2)
+        # a scaled page hands a fractional width; the cards' rects take whole pixels
+        column = min(COLUMN_WIDTH, int(width - MARGIN * 2))
         if column <= 0:
             return
         place = self.feed.place
