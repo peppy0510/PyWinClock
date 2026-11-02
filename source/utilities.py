@@ -156,6 +156,20 @@ def apply_accent(name):
         theme['alert'] = theme['warn'] if name == 'red' else theme['second']
 
 
+# the settings page in the sibling apps' colours: a darker card, a quieter rim and buttons;
+# the clock's pages keep their own
+PANEL_COLOURS = {
+    'dark': {'face': '#1d1f23', 'rim': '#2b2e33', 'control': '#26282d'},
+    'light': {'control': '#eef0f3'},
+}
+
+
+def get_panel_theme(theme):
+    panel = dict(theme, **PANEL_COLOURS['dark' if theme['titlebar_dark'] else 'light'])
+    panel['tint'] = mix(panel['control'], panel['accent'], 0.28).GetAsString(wx.C2S_HTML_SYNTAX)
+    return panel
+
+
 class WindowRect(ctypes.Structure):
     _fields_ = [('left', ctypes.c_long), ('top', ctypes.c_long),
                 ('right', ctypes.c_long), ('bottom', ctypes.c_long)]

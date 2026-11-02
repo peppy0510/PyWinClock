@@ -23,6 +23,7 @@ from utilities import APP_HOME
 from utilities import APP_NAME
 from utilities import APP_VERSION
 from utilities import get_asset_path
+from utilities import get_panel_theme
 
 
 CLOCK_PRESETS = (('classic', 'Classic'), ('minimal', 'Minimal'))
@@ -47,6 +48,7 @@ class SettingsBox(ScrollArea):
 
     def __init__(self, parent, theme, settings, on_change, folds=None, on_fold=None,
                  on_check=None):
+        theme = get_panel_theme(theme)
         super().__init__(parent, theme)
         self.folds = folds if folds is not None else set()
         self.on_folds = on_fold
@@ -232,6 +234,7 @@ class SettingsBox(ScrollArea):
                 self.on_change()
 
     def apply_theme(self, theme):
+        theme = get_panel_theme(theme)
         self.set_theme(theme)
         for child in self.content.GetChildren():
             if hasattr(child, 'set_theme'):
