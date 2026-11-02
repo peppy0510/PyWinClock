@@ -18,6 +18,8 @@ VersionInfoProductVersion="0.1.0"
 VersionInfoCompany="Taehong Kim"
 VersionInfoCopyright="Taehong Kim"
 ArchitecturesInstallIn64BitMode="x64compatible"
+CloseApplications=yes
+RestartApplications=no
 
 [Files]
 Source: ".dist\*"; DestDir: "{app}"; Flags: recursesubdirs
@@ -25,3 +27,6 @@ Source: ".dist\*"; DestDir: "{app}"; Flags: recursesubdirs
 [Icons]
 Name: "{group}\PyWinClock"; Filename: "{app}\PyWinClock.exe"
 Name: "{commondesktop}\PyWinClock"; Filename: "{app}\PyWinClock.exe"
+
+[Run]
+Filename: "{app}\PyWinClock.exe"; Description: "Launch PyWinClock"; Flags: nowait postinstall skipifsilent

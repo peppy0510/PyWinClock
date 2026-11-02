@@ -8,9 +8,11 @@ email: peppy0510@hotmail.com
 
 
 import os
+import subprocess
 import threading
 import time
 import wx
+import wx.adv
 
 from carousel import Carousel
 from carousel import PageDots
@@ -21,6 +23,9 @@ from sidemenu import SideMenu
 from stopwatchbox import StopwatchBox
 from titlebar import TitleBar
 from tray import TrayIcon
+from updatebox import UpdateBox
+from updater import Updater
+from updater import restart_source
 from weatherbox import WeatherBox
 from worldbox import WorldBox
 from utilities import APP_NAME
@@ -118,7 +123,8 @@ class MainFrame(wx.Frame):
         self.countdownbox = CountdownBox(self.book, theme)
         self.settings_folds = set(settings.get('settings_folded', []))
         self.settingsbox = SettingsBox(self.book, theme, settings, self.on_settings,
-                                       self.settings_folds, self.store_settings)
+                                       self.settings_folds, self.store_settings,
+                                       self.on_check_updates)
         self.boxes = {'clock': self.clockbox, 'world': self.worldbox,
                       'weather': self.weatherbox, 'stopwatch': self.stopwatchbox,
                       'countdown': self.countdownbox}
@@ -126,13 +132,19 @@ class MainFrame(wx.Frame):
         self.shown_pages = []
 
         self.titlebar = TitleBar(self, theme, self.on_menu, self.toggle_maximize)
+        # before the menu, which opens over it
+        self.updatebox = UpdateBox(self, theme, self.on_update_action)
+        self.updater = Updater(settings, self.on_update_checked)
+        self.release = None
         self.sidemenu = SideMenu(self, theme, (SETTINGS_ITEM,), self.on_select)
         apply_clip_siblings(self.book)
+        apply_clip_siblings(self.updatebox)
         self.dots = PageDots(self, theme, len(PAGES), self.on_dot)
         self.carousel = Carousel(self, self.book, len(PAGES), self.on_carousel, theme)
 
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(self.titlebar, 0, wx.EXPAND)
+        sizer.Add(self.updatebox, 0, wx.EXPAND)
         sizer.Add(self.book, 1, wx.EXPAND)
         sizer.Add(self.dots, 0, wx.EXPAND)
         self.SetSizer(sizer)
@@ -190,6 +202,7 @@ class MainFrame(wx.Frame):
         self.book.SetBackgroundColour(wx.Colour(theme['bg']))
         self.titlebar.set_theme(theme)
         self.sidemenu.set_theme(theme)
+        self.updatebox.set_theme(theme)
         self.dots.set_theme(theme)
         self.carousel.set_theme(theme)
 
@@ -315,8 +328,10 @@ class MainFrame(wx.Frame):
 
         if self.settingsbox.tray.GetValue() and self.tray is None:
             self.tray = TrayIcon(self)
+            self.tray.Bind(wx.adv.EVT_TASKBAR_BALLOON_CLICK, lambda event: self.show_window())
         elif not self.settingsbox.tray.GetValue() and self.tray is not None:
             self.remove_tray()
+        self.settingsbox.update_sub_cards()
 
         self.update_theme()
 
@@ -367,6 +382,97 @@ class MainFrame(wx.Frame):
             lines.append(f'Countdown {format_hms(remaining)}')
         self.tray.set_tip('\n'.join(lines))
 
+    def on_check_updates(self):
+        self.settingsbox.check_now.set_tone('plain')
+        self.settingsbox.check_now.set_description('Checking…')
+        self.updater.check(forced=True)
+
+    def get_checked_time(self):
+        stamp = time.localtime(self.updater.checked_at)
+        return time.strftime('%H:%M' if self.settingsbox.use24h.GetValue() else '%I:%M %p',
+                             stamp)
+
+    def on_update_checked(self, release, result, forced):
+        # a queued call can arrive after close
+        if not self:
+            return
+        card = self.settingsbox.check_now
+        card.set_tone('warn' if result == 'error' else 'plain')
+        if result == 'error':
+            card.set_description('Could not reach GitHub')
+            return
+        self.store_settings()
+        if result == 'found':
+            card.set_description(f'{release["version"]} is available')
+            self.show_update(release)
+        elif result == 'skipped':
+            card.set_description(f'{self.updater.skipped} skipped, '
+                                 f'checked at {self.get_checked_time()}')
+        else:
+            card.set_description(f'Up to date, checked at {self.get_checked_time()}')
+
+    def show_update(self, release):
+        # a notice already updating stays as it is
+        if self.updatebox.IsShown() and self.updatebox.state == 'busy':
+            return
+        self.release = release
+        self.updatebox.show_release(release)
+        if not self.updatebox.IsShown():
+            self.updatebox.Show()
+            self.Layout()
+        if (self.tray is not None and self.settingsbox.tray_notice.enabled
+                and self.settingsbox.tray_notice.GetValue() and not self.tray.is_window_shown()):
+            self.tray.ShowBalloon(f'{APP_NAME} {release["version"]}',
+                                  'A new version is available', 10000, wx.ICON_INFORMATION)
+
+    def hide_update(self):
+        self.updatebox.Hide()
+        self.Layout()
+
+    def on_update_action(self, key):
+        release = self.release
+        if key == 'skip':
+            self.updater.skipped = release['version']
+            self.store_settings()
+            self.settingsbox.check_now.set_description(f'{release["version"]} skipped')
+            self.hide_update()
+        elif key == 'later':
+            self.hide_update()
+        elif key == 'cancel':
+            self.updater.cancel()
+        elif release['kind'] == 'page':
+            # explorer hands the link to the shell, as the About card does
+            subprocess.Popen(['explorer', release['page']])
+            self.hide_update()
+        else:
+            if release['kind'] == 'installer':
+                self.updatebox.set_busy('Downloading 0%', 0.0)
+            else:
+                self.updatebox.set_busy('Updating…')
+            self.updater.update(release, self.on_update_progress, self.on_update_done)
+
+    def on_update_progress(self, ratio):
+        if not self or self.updatebox.state != 'busy':
+            return
+        message = f'Downloading {int(ratio * 100)}%'
+        if message != self.updatebox.message:
+            self.updatebox.set_busy(message, ratio)
+
+    def on_update_done(self, error):
+        if not self:
+            return
+        if error is not None:
+            self.updatebox.set_failed(error)
+            return
+        if self.release['kind'] == 'git':
+            try:
+                restart_source()
+            except OSError:
+                self.updatebox.set_failed('Updated, start the app again to use it')
+                return
+        # the installer replaces the app's files once it is gone
+        self.quit()
+
     @staticmethod
     def resolve_theme(choice):
         if choice == 'auto':
@@ -411,6 +517,7 @@ class MainFrame(wx.Frame):
         self.titlebar.set_menu_open(self.sidemenu.is_open())
         if self.tray is not None:
             self.update_tray()
+        self.updater.tick(self.settingsbox.check_updates.GetValue())
         paint_now(self)
 
     def store_settings(self):
@@ -429,6 +536,10 @@ class MainFrame(wx.Frame):
             **{f'page_{key}': card.GetValue() for key, card in self.settingsbox.pages.items()},
             'page_order': list(self.settingsbox.order),
             'accent': self.settingsbox.accent_choice.GetValue(),
+            'update_check': self.settingsbox.check_updates.GetValue(),
+            'update_tray': self.settingsbox.tray_notice.GetValue(),
+            'update_checked_at': self.updater.checked_at,
+            'update_skipped': self.updater.skipped,
             'cities': list(self.worldbox.names),
             'home_city': self.worldbox.home,
             'settings_folded': sorted(self.settings_folds),
@@ -442,6 +553,7 @@ class MainFrame(wx.Frame):
             self.hide_window()
             return
         self.pacer.running = False
+        self.updater.cancel()
         # its filter sees every event: removed before the windows go
         self.carousel.close()
         # close() releases the mouse capture but starts the slide timer, which would
