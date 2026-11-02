@@ -333,7 +333,10 @@ class ClockText(Canvas):
         gc.SetFont(self.font, wx.Colour(colour))
         back = self.theme['bg']
         if self.ticking:
-            first, last = self.label[0], self.label[-1]
+            # the ends measured as zeros: the digits share one advance but not one ink,
+            # and the line would sway a pixel each second
+            first, last = ('0' if char.isdigit() else char
+                           for char in (self.label[0], self.label[-1]))
             left = get_edges(self.font, first, colour, back)[0]
             right = gc.GetTextExtent(self.label)[0] - gc.GetTextExtent(last)[0] + \
                 get_edges(self.font, last, colour, back)[1]
