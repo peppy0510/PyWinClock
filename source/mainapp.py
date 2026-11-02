@@ -331,7 +331,7 @@ class MainFrame(wx.Frame):
             self.tray.Bind(wx.adv.EVT_TASKBAR_BALLOON_CLICK, lambda event: self.show_window())
         elif not self.settingsbox.tray.GetValue() and self.tray is not None:
             self.remove_tray()
-        self.settingsbox.update_sub_cards()
+        self.settingsbox.update_tray_note()
 
         self.update_theme()
 
@@ -420,8 +420,8 @@ class MainFrame(wx.Frame):
         if not self.updatebox.IsShown():
             self.updatebox.Show()
             self.Layout()
-        if (self.tray is not None and self.settingsbox.tray_notice.enabled
-                and self.settingsbox.tray_notice.GetValue() and not self.tray.is_window_shown()):
+        if (self.tray is not None and self.settingsbox.tray_notice.GetValue()
+                and not self.tray.is_window_shown()):
             self.tray.ShowBalloon(f'{APP_NAME} {release["version"]}',
                                   'A new version is available', 10000, wx.ICON_INFORMATION)
 

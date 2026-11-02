@@ -15,7 +15,6 @@ from panels import ActionCard
 from panels import ChoiceCard
 from panels import LayoutCard
 from panels import Panel
-from panels import draw_button
 from panels import ScrollArea
 from panels import SettingCard
 from utilities import APP_AUTHOR
@@ -37,47 +36,11 @@ PAGES = (('world', 'World', 'Other cities and their time on a map'),
          ('countdown', 'Countdown', 'A timer that rings at zero'))
 SHORTCUT_NOTE = 'Put a shortcut in the Start menu'
 UPDATE_NOTE = 'Look for a new release on GitHub'
+TRAY_NOTE = 'Also from the tray icon while the window is hidden'
+TRAY_NOTE_OFF = 'Needs the tray icon, under Window'
 
 DRAG_FRAME_MS = 16
 DRAG_EASE = 0.35
-
-
-class SubSettingCard(SettingCard):
-    '''a setting under the one above it, greyed out while that one leaves it no use'''
-
-    INDENT = 16
-    enabled = True
-
-    def set_enabled(self, enabled):
-        if enabled != self.enabled:
-            self.enabled = enabled
-            self.set_hovered(False)
-            self.Refresh()
-
-    def activate(self):
-        if self.enabled:
-            super().activate()
-
-    def get_hit(self):
-        return super().get_hit() if self.enabled else wx.Rect()
-
-    def draw_label(self, gc, height, limit):
-        theme = self.theme
-        if not self.enabled:
-            self.theme = dict(theme, text=theme['dim'])
-        gc.PushState()
-        gc.Translate(self.INDENT, 0)
-        super().draw_label(gc, height, limit - self.INDENT)
-        gc.PopState()
-        self.theme = theme
-
-    def draw_control(self, gc, width, height):
-        if self.enabled:
-            return super().draw_control(gc, width, height)
-        theme = self.theme
-        rect = self.get_control_rect(width, height)
-        draw_button(gc, dict(theme, text=theme['dim']), rect, 'ON' if self.value else 'OFF')
-        return rect.x
 
 
 class SettingsBox(ScrollArea):
@@ -119,9 +82,7 @@ class SettingsBox(ScrollArea):
                                         'Buttons on, the rings, the map and the menu', ACCENTS,
                                         on_change)
         self.check_updates = toggle('Check for updates', 'Once a day, a notice when one is out')
-        self.tray_notice = SubSettingCard(board, theme, 'Tray notification',
-                                          'Also from the tray icon while the window is hidden',
-                                          on_change)
+        self.tray_notice = toggle('Tray notification', TRAY_NOTE)
         self.check_now = ActionCard(board, theme, 'Latest release', UPDATE_NOTE, 'Check now',
                                     on_check)
 
@@ -142,7 +103,7 @@ class SettingsBox(ScrollArea):
         self.accent_choice.SetValue(settings.get('accent', 'blue'))
         self.check_updates.SetValue(settings.get('update_check', True))
         self.tray_notice.SetValue(settings.get('update_tray', True))
-        self.update_sub_cards()
+        self.update_tray_note()
 
         self.pages_sizer = wx.BoxSizer(wx.VERTICAL)
         self.pages_panel = Panel(board, theme, 'settings.pages', 'Pages', (self.pages_sizer,),
@@ -171,9 +132,12 @@ class SettingsBox(ScrollArea):
         self.bind_children()
         self.apply_theme(theme)
 
-    def update_sub_cards(self):
-        # the notice pops up from the tray icon, so it needs one
-        self.tray_notice.set_enabled(self.check_updates.GetValue() and self.tray.GetValue())
+    def update_tray_note(self):
+        # the balloon pops up from the tray icon
+        note = TRAY_NOTE if self.tray.GetValue() else TRAY_NOTE_OFF
+        if note != self.tray_notice.description:
+            self.tray_notice.description = note
+            self.tray_notice.Refresh()
 
     def on_shortcut(self):
         # win32com costs about 7 MB, load it only when asked
