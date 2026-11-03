@@ -7,7 +7,9 @@ email: peppy0510@hotmail.com
 '''
 
 
+import makeshortcut
 import subprocess
+import sys
 import wx
 
 from panels import AboutCard
@@ -35,7 +37,8 @@ PAGES = (('world', 'World', 'Other cities and their time on a map'),
          ('weather', 'Weather', 'Forecast for the home city picked on World'),
          ('stopwatch', 'Stopwatch', 'Laps to a hundredth of a second'),
          ('countdown', 'Countdown', 'A timer that rings at zero'))
-SHORTCUT_NOTE = 'Put a shortcut in the Start menu'
+SHORTCUT_OFF = 'Put a shortcut in the Start menu'
+SHORTCUT_ON = 'A shortcut is in the Start menu'
 UPDATE_NOTE = 'Look for a new release on GitHub'
 TRAY_NOTE = 'Also from the tray icon while the window is hidden'
 TRAY_NOTE_OFF = 'Needs the tray icon, under Window'
@@ -73,8 +76,13 @@ class SettingsBox(ScrollArea):
         self.close_to_tray = toggle('Close to tray',
                                     'Closing hides the window instead of quitting')
         self.autohide = toggle('Auto hide menu', 'Show the header only on hover')
-        self.shortcut = ActionCard(board, theme, 'Start menu', SHORTCUT_NOTE, 'Create',
-                                   self.on_shortcut)
+        # a source run only: an installed exe has the installer's Start menu entry
+        self.shortcut = None
+        if not getattr(sys, 'frozen', False):
+            self.shortcut = ActionCard(board, theme, 'Start menu', SHORTCUT_OFF, 'Create',
+                                       self.on_shortcut)
+            self.shortcut.set_captions('Remove')
+            self.update_shortcut()
         self.preset = ChoiceCard(board, theme, 'Clock face', 'Pick how the dial is drawn',
                                  CLOCK_PRESETS, on_change)
         self.smooth = toggle('Smooth second hand', 'Sweep instead of stepping once a second')
@@ -117,7 +125,8 @@ class SettingsBox(ScrollArea):
                   (self.use24h, self.useutc, self.offset_choice), self.folds, self.on_fold),
             self.pages_panel,
             Panel(board, theme, 'settings.window', 'Window',
-                  (self.ontop, self.tray, self.close_to_tray, self.autohide, self.shortcut),
+                  tuple(card for card in (self.ontop, self.tray, self.close_to_tray,
+                                          self.autohide, self.shortcut) if card),
                   self.folds, self.on_fold),
             Panel(board, theme, 'settings.appearance', 'Appearance',
                   (self.preset, self.smooth, self.theme_choice, self.accent_choice), self.folds,
@@ -141,17 +150,24 @@ class SettingsBox(ScrollArea):
             self.tray_notice.description = note
             self.tray_notice.Refresh()
 
+    def update_shortcut(self, note=None):
+        present = makeshortcut.has_start_menu()
+        self.shortcut.set_caption('Remove' if present else 'Create')
+        self.shortcut.set_description(note or (SHORTCUT_ON if present else SHORTCUT_OFF))
+
     def on_shortcut(self):
-        # win32com costs about 7 MB, load it only when asked
-        import makeshortcut
-        from shortcut import ShortCut
         try:
-            makeshortcut.create(ShortCut.get_user_startmenu_path(APP_NAME))
+            if makeshortcut.has_start_menu():
+                makeshortcut.remove_start_menu()
+                note = 'Shortcut removed'
+            else:
+                makeshortcut.create(makeshortcut.get_start_menu_paths()[0])
+                note = 'Shortcut created'
         except Exception:
-            self.shortcut.set_description('Could not create the shortcut')
+            self.shortcut.set_description('Could not change the shortcut')
             self.shortcut.set_tone('warn')
             return
-        self.shortcut.set_description('Shortcut created')
+        self.update_shortcut(note)
         self.shortcut.set_tone('plain')
 
     def on_home(self):
