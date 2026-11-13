@@ -30,10 +30,12 @@ class SideMenu(Canvas):
     STEP = 12
     EASING = 0.34
 
-    def __init__(self, parent, theme, items, on_select):
+    # hand: a pointing hand over the items
+    def __init__(self, parent, theme, items, on_select, hand=False):
         super().__init__(parent, theme)
         self.items = items
         self.on_select = on_select
+        self.hand = hand
         self.selected = 0
         self.hovered = -1
         self.opened = False
@@ -48,7 +50,7 @@ class SideMenu(Canvas):
         self.Bind(wx.EVT_MOTION, self.on_motion)
         self.Bind(wx.EVT_LEAVE_WINDOW, self.on_leave)
         self.Bind(wx.EVT_MOUSE_CAPTURE_LOST, self.on_capture_lost)
-        # paint once while off screen, else the first open flashes white
+        # paint once while hidden so the first open does not flash white
         wx.CallAfter(self.warm_up)
 
     def warm_up(self):
@@ -80,7 +82,6 @@ class SideMenu(Canvas):
         self.opened = True
         self.Show()
         self.Raise()
-        # paint now, the next paint cycle would show a blank panel first
         self.Update()
         if not self.HasCapture():
             self.CaptureMouse()
@@ -147,7 +148,8 @@ class SideMenu(Canvas):
         index = self.hit_test(event.GetPosition())
         if index != self.hovered:
             self.hovered = index
-            self.SetCursor(wx.Cursor(wx.CURSOR_HAND if index >= 0 else wx.CURSOR_ARROW))
+            if self.hand:
+                self.SetCursor(wx.Cursor(wx.CURSOR_HAND if index >= 0 else wx.CURSOR_ARROW))
             self.Refresh()
 
     def on_leave(self, event):
@@ -155,8 +157,8 @@ class SideMenu(Canvas):
             self.hovered = -1
             self.Refresh()
 
+    # releasing a capture that is already lost asserts
     def on_capture_lost(self, event):
-        # releasing a capture that is already lost asserts
         if self.opened:
             self.opened = False
             self.hovered = -1
@@ -168,7 +170,6 @@ class SideMenu(Canvas):
         gc.SetBrush(wx.Brush(wx.Colour(theme['bg'])))
         gc.DrawRectangle(0, 0, width, height)
 
-        # 1px fills, a pen renders 2px on the left and top
         gc.SetBrush(wx.Brush(wx.Colour(theme['rim'])))
         gc.DrawRectangle(0, 0, 1, height)
         gc.DrawRectangle(width - 1, 0, 1, height)
@@ -204,6 +205,7 @@ class SideMenu(Canvas):
 
         if active:
             bar = rect.height * 0.40
+            gc.SetPen(wx.TRANSPARENT_PEN)
             gc.SetBrush(wx.Brush(wx.Colour(theme['accent'])))
             gc.DrawRoundedRectangle(rect.x + 2, rect.y + (rect.height - bar) / 2,
                                     3, bar, 1.5)
@@ -214,5 +216,7 @@ class SideMenu(Canvas):
 
         gc.SetFont(get_font(10, bold=active), wx.Colour(colour))
         text_height = gc.GetTextExtent(label)[1]
-        gc.DrawText(label, rect.x + self.LABEL_LEFT,
+        # a label from outside the app can run past the rim
+        limit = rect.width - self.LABEL_LEFT - 8
+        gc.DrawText(self.fit_text(gc, label, limit), rect.x + self.LABEL_LEFT,
                     rect.y + (rect.height - text_height) / 2)

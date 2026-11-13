@@ -29,7 +29,6 @@ ICON_SIZE = 16
 GLYPH_SIZE = 15
 MENU_GLYPH_SIZE = 14
 
-# inset, a full-height fill would look cut off under the DWM top band
 BUTTON_BOX = (34, 25)
 BUTTON_RADIUS = 4
 
@@ -38,10 +37,12 @@ class TitleBar(Canvas):
 
     HEIGHT = TITLEBAR_HEIGHT
 
-    def __init__(self, parent, theme, on_menu, on_maximize):
+    # hand: a pointing hand over the buttons
+    def __init__(self, parent, theme, on_menu, on_maximize, hand=False):
         super().__init__(parent, theme)
         self.on_menu = on_menu
         self.on_maximize = on_maximize
+        self.hand = hand
         self.icon = self.load_icon()
         self.cap_height = None
         self.visible = True
@@ -64,7 +65,6 @@ class TitleBar(Canvas):
         return image.Scale(ICON_SIZE, ICON_SIZE, wx.IMAGE_QUALITY_HIGH).ConvertToBitmap()
 
     def get_cap_height(self):
-        # the visible header includes the DWM top band, so centre on both
         if self.cap_height is None:
             frame = self.GetTopLevelParent()
             top = frame.GetScreenRect().y + get_frame_margins(frame)[1]
@@ -99,7 +99,6 @@ class TitleBar(Canvas):
         if visible == self.visible:
             return False
         self.visible = visible
-        # motion was ignored while hidden, a resting cursor would get no hover
         self.hovered = self.hit_test(
             self.ScreenToClient(wx.GetMousePosition())) if visible else None
         self.Refresh()
@@ -116,8 +115,8 @@ class TitleBar(Canvas):
             self.Refresh()
 
     def start_drag(self):
-        # Windows drags through the caption itself, so Aero Snap keeps working
         try:
+            # let Windows run the drag so edge snapping keeps working
             ctypes.windll.user32.ReleaseCapture()
             ctypes.windll.user32.SendMessageW(
                 self.GetTopLevelParent().GetHandle(), WM_NCLBUTTONDOWN, HTCAPTION, 0)
@@ -155,7 +154,8 @@ class TitleBar(Canvas):
         name = self.hit_test(event.GetPosition())
         if name != self.hovered:
             self.hovered = name
-            self.SetCursor(wx.Cursor(wx.CURSOR_HAND if name is not None else wx.CURSOR_ARROW))
+            if self.hand:
+                self.SetCursor(wx.Cursor(wx.CURSOR_HAND if name is not None else wx.CURSOR_ARROW))
             self.Refresh()
 
     def on_leave(self, event):

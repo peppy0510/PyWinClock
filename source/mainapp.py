@@ -131,12 +131,12 @@ class MainFrame(wx.Frame):
         # filled by apply_pages from the settings
         self.shown_pages = []
 
-        self.titlebar = TitleBar(self, theme, self.on_menu, self.toggle_maximize)
+        self.titlebar = TitleBar(self, theme, self.on_menu, self.toggle_maximize, hand=True)
         # before the menu, which opens over it
         self.updatebox = UpdateBox(self, theme, self.on_update_action)
         self.updater = Updater(settings, self.on_update_checked)
         self.release = None
-        self.sidemenu = SideMenu(self, theme, (SETTINGS_ITEM,), self.on_select)
+        self.sidemenu = SideMenu(self, theme, (SETTINGS_ITEM,), self.on_select, hand=True)
         apply_clip_siblings(self.book)
         apply_clip_siblings(self.updatebox)
         self.dots = PageDots(self, theme, len(PAGES), self.on_dot)
@@ -311,6 +311,7 @@ class MainFrame(wx.Frame):
             self.Thaw()
 
     def on_settings(self):
+        self.updater.enabled = self.settingsbox.check_updates.GetValue()
         self.apply_pages()
         self.clockbox.set_options(self.settingsbox.use24h.GetValue(),
                                   self.settingsbox.useutc.GetValue(),
@@ -517,7 +518,7 @@ class MainFrame(wx.Frame):
         self.titlebar.set_menu_open(self.sidemenu.is_open())
         if self.tray is not None:
             self.update_tray()
-        self.updater.tick(self.settingsbox.check_updates.GetValue())
+        self.updater.tick()
         paint_now(self)
 
     def store_settings(self):
