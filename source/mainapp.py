@@ -47,7 +47,7 @@ TICK_INTERVAL = 50
 # a running timer's hundredths: at 50 ms they stepped by 5, the last digit only ever two
 RUNNING_INTERVAL = 16
 DEFAULT_SIZE = (480, 720)
-MIN_SIZE = (360, 480)
+MIN_SIZE = (340, 480)
 THEME_POLL = 2.0
 
 # the carousel's pages; the clock leads, the rest are ordered and turned off in the settings
